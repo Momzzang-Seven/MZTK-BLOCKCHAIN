@@ -49,8 +49,7 @@ contract MarketplaceEscrowTest is Test {
     function test_PurchaseClass() public {
         uint256 orderId = _purchase();
 
-        (address b, address t, bytes32 ch, uint256 p, uint256 st, uint256 et, bool settled) =
-            escrow.getOrder(orderId);
+        (address b, address t, bytes32 ch, uint256 p, uint256 st, uint256 et, bool settled) = escrow.getOrder(orderId);
 
         assertEq(b, buyer);
         assertEq(t, trainer);

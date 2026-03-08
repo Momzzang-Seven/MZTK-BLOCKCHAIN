@@ -88,13 +88,10 @@ contract MarketplaceEscrow {
      * @param endTime 클래스 종료 시각 (unix timestamp)
      * @return orderId 생성된 주문 ID
      */
-    function purchaseClass(
-        address trainer,
-        bytes32 classHash,
-        uint256 price,
-        uint256 startTime,
-        uint256 endTime
-    ) external returns (uint256 orderId) {
+    function purchaseClass(address trainer, bytes32 classHash, uint256 price, uint256 startTime, uint256 endTime)
+        external
+        returns (uint256 orderId)
+    {
         if (classHash == bytes32(0)) revert InvalidClassHash();
         if (price == 0) revert InvalidPrice();
         if (startTime >= endTime || endTime <= block.timestamp) revert InvalidTimeRange();
