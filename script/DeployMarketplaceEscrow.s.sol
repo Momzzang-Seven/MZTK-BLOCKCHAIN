@@ -6,10 +6,10 @@ import {MarketplaceEscrow} from "../src/MarketplaceEscrow.sol";
 
 contract DeployMarketplaceEscrow is Script {
     function run() external {
-        address tokenAddress = vm.envAddress("MY_ERC20_ADDRESS");
+        address initialOwner = msg.sender;
 
         vm.startBroadcast();
-        new MarketplaceEscrow(tokenAddress);
+        new MarketplaceEscrow(initialOwner);
         vm.stopBroadcast();
     }
 }
