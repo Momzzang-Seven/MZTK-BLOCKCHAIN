@@ -12,6 +12,7 @@ contract MockToken is ERC20 {
     constructor() ERC20("Mock", "MCK") {
         _mint(msg.sender, 10000 ether);
     }
+
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
@@ -23,7 +24,7 @@ contract QnAEscrowTest is Test {
 
     uint256 public askerPk = 0xA11CE;
     address public asker;
-    
+
     address public responder = address(2);
     address public stranger = address(3);
     address public relayer = address(999);
@@ -43,7 +44,7 @@ contract QnAEscrowTest is Test {
         batchImpl = new BatchImplementation();
 
         token.mint(asker, 10000 ether);
-        
+
         vm.etch(asker, address(batchImpl).code);
     }
 
@@ -62,14 +63,15 @@ contract QnAEscrowTest is Test {
 
         bytes32 CALL_TYPEHASH = keccak256("Call(address to,uint256 value,bytes data)");
         bytes32 BATCH_TYPEHASH = keccak256("Batch(uint256 nonce,Call[] calls)Call(address to,uint256 value,bytes data)");
-        
+
         bytes32[] memory callHashes = new bytes32[](calls.length);
         for (uint256 i = 0; i < calls.length; i++) {
             callHashes[i] = keccak256(abi.encode(CALL_TYPEHASH, calls[i].to, calls[i].value, keccak256(calls[i].data)));
         }
 
         uint256 currentNonce = BatchImplementation(payable(asker)).txNonce();
-        bytes32 structHash = keccak256(abi.encode(BATCH_TYPEHASH, currentNonce, keccak256(abi.encodePacked(callHashes))));
+        bytes32 structHash =
+            keccak256(abi.encode(BATCH_TYPEHASH, currentNonce, keccak256(abi.encodePacked(callHashes))));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(askerPk, digest);
@@ -81,22 +83,17 @@ contract QnAEscrowTest is Test {
 
     function _createQuestionThroughBatch() internal returns (uint256 qId) {
         qId = escrow.questionCount();
-        
+
         BatchImplementation.Call[] memory calls = new BatchImplementation.Call[](2);
-        
+
         calls[0] = BatchImplementation.Call({
-            to: address(token),
-            value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, address(escrow), reward)
+            to: address(token), value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, address(escrow), reward)
         });
 
         calls[1] = BatchImplementation.Call({
             to: address(escrow),
             value: 0,
-            data: abi.encodeWithSelector(
-                QnAEscrow.createQuestion.selector,
-                address(token), questionHash, reward
-            )
+            data: abi.encodeWithSelector(QnAEscrow.createQuestion.selector, address(token), questionHash, reward)
         });
 
         _executeBatchAsRelayer(calls);

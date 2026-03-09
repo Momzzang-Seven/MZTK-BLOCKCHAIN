@@ -40,11 +40,7 @@ contract QnAEscrow {
     // ──────────────────────────── Events ───────────────────────────
 
     event QuestionCreated(
-        uint256 indexed questionId, 
-        address indexed asker, 
-        address token, 
-        bytes32 contentHash, 
-        uint256 rewardAmount
+        uint256 indexed questionId, address indexed asker, address token, bytes32 contentHash, uint256 rewardAmount
     );
 
     event AnswerSubmitted(
@@ -78,11 +74,10 @@ contract QnAEscrow {
     /**
      * @notice 질문 등록 + ERC-20 토큰 예치
      */
-    function createQuestion(
-        address token,
-        bytes32 contentHash, 
-        uint256 rewardAmount
-    ) external returns (uint256 questionId) {
+    function createQuestion(address token, bytes32 contentHash, uint256 rewardAmount)
+        external
+        returns (uint256 questionId)
+    {
         if (token == address(0)) revert InvalidAddress();
         if (contentHash == bytes32(0)) revert InvalidContentHash();
         if (rewardAmount == 0) revert InvalidRewardAmount();
@@ -165,11 +160,11 @@ contract QnAEscrow {
         external
         view
         returns (
-            address asker, 
-            address token, 
-            bytes32 contentHash, 
-            uint256 rewardAmount, 
-            bool isResolved, 
+            address asker,
+            address token,
+            bytes32 contentHash,
+            uint256 rewardAmount,
+            bool isResolved,
             uint256 answerCount
         )
     {
