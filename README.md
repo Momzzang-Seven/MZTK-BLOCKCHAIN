@@ -25,6 +25,12 @@ $ forge build
 
 ```shell
 $ forge test
+# 특정 파일만
+$ forge test --match-path test/파일명.t.sol
+# 특정 컨트랙트만
+forge test --match-contract 컨트랙트명 
+# 특정 테스트 함수만
+forge test --match-test test_이름 (예: forge test --match-test test_PurchaseClassWithSig
 ```
 
 ### Format
