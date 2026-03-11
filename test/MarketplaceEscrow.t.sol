@@ -30,20 +30,13 @@ contract MarketplaceEscrowTest is Test {
     address public owner = address(5);
     address public relayer = address(999);
 
-    bytes32 public classHash = keccak256("Cycling Class #1");
     uint256 public price = 100 ether;
-
-    uint256 public startTime;
-    uint256 public endTime;
 
     // EIP-7702 Batch Account Simulation
     BatchImplementation public batchImpl;
 
     function setUp() public {
         buyer = vm.addr(buyerPk);
-
-        startTime = block.timestamp + 1 days;
-        endTime = block.timestamp + 2 days;
 
         token = new MockToken();
         escrow = new MarketplaceEscrow(owner);
@@ -96,12 +89,11 @@ contract MarketplaceEscrowTest is Test {
             to: address(token), value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, address(escrow), price)
         });
 
-        // Notice we are passing address(token) as the first argument now
         calls[1] = BatchImplementation.Call({
             to: address(escrow),
             value: 0,
             data: abi.encodeWithSelector(
-                MarketplaceEscrow.purchaseClass.selector, address(token), trainer, classHash, price, startTime, endTime
+                MarketplaceEscrow.purchaseClass.selector, address(token), trainer, price
             )
         });
 
@@ -114,16 +106,12 @@ contract MarketplaceEscrowTest is Test {
     function test_PurchaseClass_GaslessBatch() public {
         uint256 orderId = _purchaseThroughBatch();
 
-        (address b, address t, address tk, bytes32 ch, uint256 p, uint256 st, uint256 et, bool settled) =
-            escrow.getOrder(orderId);
+        (address b, address t, address tk, uint256 p, bool settled) = escrow.getOrder(orderId);
 
         assertEq(b, buyer);
         assertEq(t, trainer);
         assertEq(tk, address(token));
-        assertEq(ch, classHash);
         assertEq(p, price);
-        assertEq(st, startTime);
-        assertEq(et, endTime);
         assertFalse(settled);
 
         assertEq(token.balanceOf(address(escrow)), price);
@@ -135,7 +123,7 @@ contract MarketplaceEscrowTest is Test {
     function _purchaseNative() internal returns (uint256) {
         vm.startPrank(buyer);
         token.approve(address(escrow), type(uint256).max);
-        uint256 orderId = escrow.purchaseClass(address(token), trainer, classHash, price, startTime, endTime);
+        uint256 orderId = escrow.purchaseClass(address(token), trainer, price);
         vm.stopPrank();
         return orderId;
     }
@@ -149,9 +137,9 @@ contract MarketplaceEscrowTest is Test {
         escrow.confirmClass(orderId);
 
         // 100 ether total to trainer directly
-        assertEq(token.balanceOf(trainer), trainerBalBefore + 100 ether);
+        assertEq(token.balanceOf(trainer), trainerBalBefore + price);
 
-        (,,,,,,, bool settled) = escrow.getOrder(orderId);
+        (,,,, bool settled) = escrow.getOrder(orderId);
         assertTrue(settled);
     }
 
@@ -162,68 +150,96 @@ contract MarketplaceEscrowTest is Test {
         escrow.confirmClass(orderId);
     }
 
-    function test_RefundClass() public {
-        uint256 orderId = _purchaseNative();
-
-        vm.prank(buyer);
-        escrow.refundClass(orderId);
-
-        // Refund full price to buyer
-        assertEq(token.balanceOf(buyer), 10_000 ether); // 원래 잔고 롤백
-
-        (,,,,,,, bool settled) = escrow.getOrder(orderId);
-        assertTrue(settled);
-    }
-
-    function test_Fail_RefundAfterStart() public {
-        uint256 orderId = _purchaseNative();
-        vm.warp(startTime);
-
-        vm.prank(buyer);
-        vm.expectRevert(MarketplaceEscrow.ClassAlreadyStarted.selector);
-        escrow.refundClass(orderId);
-    }
-
     function test_CancelClass() public {
         uint256 orderId = _purchaseNative();
 
         vm.prank(trainer);
         escrow.cancelClass(orderId);
 
-        assertEq(token.balanceOf(buyer), 10_000 ether);
+        // Refund full price to buyer
+        assertEq(token.balanceOf(buyer), 10_000 ether); // 원래 잔고 롤백
 
-        (,,,,,,, bool settled) = escrow.getOrder(orderId);
+        (,,,, bool settled) = escrow.getOrder(orderId);
         assertTrue(settled);
     }
-
-    function test_ReleasePayment() public {
+    
+    function test_Fail_CancelByNonTrainer() public {
         uint256 orderId = _purchaseNative();
+        vm.prank(buyer);
+        vm.expectRevert(MarketplaceEscrow.OnlyTrainer.selector);
+        escrow.cancelClass(orderId);
+    }
 
-        vm.warp(endTime + 3 days + 1);
+    function test_AdminSettle() public {
+        uint256 orderId = _purchaseNative();
 
         uint256 trainerBalBefore = token.balanceOf(trainer);
 
-        vm.prank(stranger);
-        escrow.releasePayment(orderId);
+        vm.prank(owner);
+        escrow.adminSettle(orderId);
 
-        assertEq(token.balanceOf(trainer), trainerBalBefore + 100 ether);
+        assertEq(token.balanceOf(trainer), trainerBalBefore + price);
 
-        (,,,,,,, bool settled) = escrow.getOrder(orderId);
+        (,,,, bool settled) = escrow.getOrder(orderId);
         assertTrue(settled);
     }
-
-    // ─────────────────── Admin Configuration ───────────────────
-
-    function test_AdminUpdateConfig() public {
-        vm.prank(owner);
-        escrow.updateConfig(7 days); // 7일로 변경
-
-        assertEq(escrow.autoReleaseDelay(), 7 days);
-    }
-
-    function test_Fail_AdminUpdateConfigNotOwner() public {
+    
+    function test_Fail_AdminSettleByNonOwner() public {
+        uint256 orderId = _purchaseNative();
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", stranger));
-        escrow.updateConfig(7 days);
+        escrow.adminSettle(orderId);
+    }
+
+    function test_AdminRefund() public {
+        uint256 orderId = _purchaseNative();
+
+        vm.prank(owner);
+        escrow.adminRefund(orderId);
+
+        assertEq(token.balanceOf(buyer), 10_000 ether);
+
+        (,,,, bool settled) = escrow.getOrder(orderId);
+        assertTrue(settled);
+    }
+    
+    function test_Fail_AdminRefundByNonOwner() public {
+        uint256 orderId = _purchaseNative();
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", stranger));
+        escrow.adminRefund(orderId);
+    }
+    
+    function test_Fail_PurchaseOwnClass() public {
+        vm.startPrank(buyer);
+        token.approve(address(escrow), type(uint256).max);
+        
+        vm.expectRevert(MarketplaceEscrow.CannotBuyOwnClass.selector);
+        escrow.purchaseClass(address(token), buyer, price);
+        
+        vm.stopPrank();
+    }
+    
+    function test_Fail_AlreadySettled() public {
+        uint256 orderId = _purchaseNative();
+        
+        vm.prank(buyer);
+        escrow.confirmClass(orderId);
+        
+        vm.prank(buyer);
+        vm.expectRevert(MarketplaceEscrow.AlreadySettled.selector);
+        escrow.confirmClass(orderId);
+        
+        vm.prank(trainer);
+        vm.expectRevert(MarketplaceEscrow.AlreadySettled.selector);
+        escrow.cancelClass(orderId);
+        
+        vm.prank(owner);
+        vm.expectRevert(MarketplaceEscrow.AlreadySettled.selector);
+        escrow.adminSettle(orderId);
+        
+        vm.prank(owner);
+        vm.expectRevert(MarketplaceEscrow.AlreadySettled.selector);
+        escrow.adminRefund(orderId);
     }
 }
