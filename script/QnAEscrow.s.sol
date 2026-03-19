@@ -6,8 +6,10 @@ import {QnAEscrow} from "../src/QnAEscrow.sol";
 
 contract DeployQnAEscrow is Script {
     function run() external {
+        address initialOwner = msg.sender;
+
         vm.startBroadcast();
-        new QnAEscrow();
+        new QnAEscrow(initialOwner);
         vm.stopBroadcast();
     }
 }
