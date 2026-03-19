@@ -25,13 +25,15 @@ contract EIP7702Proxy is Proxy {
     receive() external payable {}
 
     function _domainSeparator() internal view returns (bytes32) {
-        return keccak256(abi.encode(
-            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-            keccak256(bytes("EIP7702Proxy")),
-            keccak256(bytes("1")),
-            block.chainid,
-            address(this)
-        ));
+        return keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("EIP7702Proxy")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(this)
+            )
+        );
     }
 
     function setImplementation(
@@ -43,17 +45,19 @@ contract EIP7702Proxy is Proxy {
     ) external {
         if (block.timestamp >= expiry) revert("Expired");
 
-        bytes32 structHash = keccak256(abi.encode(
-            _IMPLEMENTATION_SET_TYPEHASH,
-            block.chainid,
-            _proxy,
-            nonceTracker.useNonce(),
-            ERC1967Utils.getImplementation(),
-            newImplementation,
-            keccak256(callData),
-            validator,
-            expiry
-        ));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                _IMPLEMENTATION_SET_TYPEHASH,
+                block.chainid,
+                _proxy,
+                nonceTracker.useNonce(),
+                ERC1967Utils.getImplementation(),
+                newImplementation,
+                keccak256(callData),
+                validator,
+                expiry
+            )
+        );
 
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
         address signer = ECDSA.recover(digest, signature);

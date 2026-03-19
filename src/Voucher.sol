@@ -30,14 +30,14 @@ contract Voucher is Ownable {
 
     function redeemVoucher(bytes32 code) external {
         uint256 amount = voucherAmounts[code];
-        
+
         require(amount > 0, "Invalid voucher code");
         require(!usedVouchers[code], "Voucher already used");
 
         usedVouchers[code] = true;
-        
+
         REWARD_TOKEN.safeTransfer(msg.sender, amount);
-        
+
         emit VoucherRedeemed(msg.sender, code, amount);
     }
 }

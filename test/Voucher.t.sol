@@ -7,14 +7,16 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract MockToken is ERC20 {
-    constructor() ERC20("Mock", "MCK") { _mint(msg.sender, 1000 ether); }
+    constructor() ERC20("Mock", "MCK") {
+        _mint(msg.sender, 1000 ether);
+    }
 }
 
 contract VoucherTest is Test {
     using SafeERC20 for MockToken;
     Voucher public voucher;
     MockToken public token;
-    
+
     address public admin = address(1);
     address public user = address(2);
     bytes32 public secretCode = keccak256("MZTK_DISCOUNT_2026");
@@ -23,7 +25,7 @@ contract VoucherTest is Test {
         vm.startPrank(admin);
         token = new MockToken();
         voucher = new Voucher(address(token));
-        
+
         token.safeTransfer(address(voucher), 500 ether);
         vm.stopPrank();
     }
@@ -47,7 +49,7 @@ contract VoucherTest is Test {
 
         vm.startPrank(user);
         voucher.redeemVoucher(secretCode);
-        
+
         vm.expectRevert("Voucher already used");
         voucher.redeemVoucher(secretCode);
         vm.stopPrank();

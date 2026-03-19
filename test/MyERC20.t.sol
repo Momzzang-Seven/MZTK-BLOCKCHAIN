@@ -32,10 +32,10 @@ contract MyERC20Test is Test {
 
     function testPublicMint() public {
         uint256 mintAmount = 100 ether;
-        
+
         vm.prank(user);
         token.mint(user, mintAmount);
-        
+
         assertEq(token.balanceOf(user), mintAmount);
     }
 }

@@ -16,17 +16,16 @@ contract SimpleWalletTest is Test {
     using SafeERC20 for MockToken;
     SimpleWallet public wallet;
     MockToken public token;
-    
+
     address public user = address(0xABCD);
 
     function setUp() public {
         wallet = new SimpleWallet();
         token = new MockToken();
-        
+
         vm.deal(user, 10 ether);
         token.safeTransfer(user, 100 ether);
     }
-
 
     function test_DepositEth() public {
         vm.startPrank(user);
@@ -41,10 +40,10 @@ contract SimpleWalletTest is Test {
     function test_WithdrawEth() public {
         vm.startPrank(user);
         wallet.depositEth{value: 2 ether}();
-        
+
         uint256 beforeBalance = user.balance;
         wallet.withdrawEth(1 ether);
-        
+
         assertEq(wallet.getEthBalance(), 1 ether);
         assertEq(user.balance, beforeBalance + 1 ether);
         vm.stopPrank();
@@ -70,9 +69,9 @@ contract SimpleWalletTest is Test {
         wallet.depositErc20(address(token), amount);
 
         wallet.withdrawErc20(address(token), 20 ether);
-        
+
         assertEq(wallet.getErc20Balance(address(token)), 30 ether);
-        assertEq(token.balanceOf(user), 70 ether); 
+        assertEq(token.balanceOf(user), 70 ether);
         vm.stopPrank();
     }
 

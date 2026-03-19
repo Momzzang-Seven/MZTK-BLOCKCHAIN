@@ -2,14 +2,14 @@
 pragma solidity ^0.8.33;
 
 import {Script} from "forge-std/Script.sol";
-import {Voucher} from "../src/Voucher.sol";
+import {QnAEscrow} from "../src/QnAEscrow.sol";
 
-contract DeployVoucher is Script {
+contract DeployQnAEscrow is Script {
     function run() external {
-        address tokenAddress = vm.envAddress("MY_ERC20_ADDRESS");
+        address initialOwner = msg.sender;
 
         vm.startBroadcast();
-        new Voucher(tokenAddress);
+        new QnAEscrow(initialOwner);
         vm.stopBroadcast();
     }
 }
