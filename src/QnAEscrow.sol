@@ -8,8 +8,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 contract QnAEscrow is Ownable {
     using SafeERC20 for IERC20;
 
-
-
     struct Question {
         uint256 rewardAmount;
         bytes32 contentHash;
@@ -26,8 +24,6 @@ contract QnAEscrow is Ownable {
         address responder;
     }
 
-
-
     uint256 public constant AUTO_ACCEPT_DELAY = 7 days;
 
     mapping(bytes32 => Question) public questions;
@@ -35,10 +31,8 @@ contract QnAEscrow is Ownable {
     mapping(bytes32 => mapping(bytes32 => Answer)) public answers;
 
     mapping(address => bool) public isSupportedToken;
-    
+
     mapping(address => bool) public isRelayer;
-
-
 
     event QuestionCreated(
         bytes32 indexed questionId, address indexed asker, address token, bytes32 contentHash, uint256 rewardAmount
@@ -53,8 +47,10 @@ contract QnAEscrow is Ownable {
     );
 
     event QuestionCancelled(bytes32 indexed questionId);
-    
-    event AdminSettled(bytes32 indexed questionId, bytes32 indexed answerId, address indexed responder, uint256 rewardAmount);
+
+    event AdminSettled(
+        bytes32 indexed questionId, bytes32 indexed answerId, address indexed responder, uint256 rewardAmount
+    );
     event AdminRefunded(bytes32 indexed questionId, address indexed asker, uint256 rewardAmount);
 
     event AutoAccepted(
@@ -63,8 +59,6 @@ contract QnAEscrow is Ownable {
 
     event TokenSupportUpdated(address indexed token, bool isSupported);
     event RelayerUpdated(address indexed relayer, bool isAuthorized);
-
-
 
     error InvalidAddress();
     error InvalidContentHash();
@@ -82,18 +76,12 @@ contract QnAEscrow is Ownable {
     error CannotAutoAcceptYet();
     error NoAnswersToAutoAccept();
 
-
-
     modifier onlyRelayerOrOwner() {
         if (!isRelayer[msg.sender] && msg.sender != owner()) revert OnlyRelayerOrOwner();
         _;
     }
 
-
-
     constructor(address initialOwner) Ownable(initialOwner) {}
-
-
 
     function updateTokenSupport(address token, bool isSupported) external onlyOwner {
         if (token == address(0)) revert InvalidAddress();
@@ -106,8 +94,6 @@ contract QnAEscrow is Ownable {
         isRelayer[relayer] = isAuthorized;
         emit RelayerUpdated(relayer, isAuthorized);
     }
-
-
 
     function createQuestion(bytes32 questionId, address token, bytes32 contentHash, uint256 rewardAmount) external {
         if (token == address(0)) revert InvalidAddress();
@@ -149,10 +135,7 @@ contract QnAEscrow is Ownable {
         }
 
         q.answerCount += 1;
-        answers[questionId][answerId] = Answer({
-            contentHash: contentHash,
-            responder: msg.sender
-        });
+        answers[questionId][answerId] = Answer({contentHash: contentHash, responder: msg.sender});
 
         emit AnswerSubmitted(questionId, answerId, msg.sender, contentHash);
     }
@@ -203,7 +186,10 @@ contract QnAEscrow is Ownable {
         _adminSettle(questionId, answerId);
     }
 
-    function batchAdminSettle(bytes32[] calldata questionIds, bytes32[] calldata answerIds) external onlyRelayerOrOwner {
+    function batchAdminSettle(bytes32[] calldata questionIds, bytes32[] calldata answerIds)
+        external
+        onlyRelayerOrOwner
+    {
         require(questionIds.length == answerIds.length, "Array length mismatch");
         for (uint256 i = 0; i < questionIds.length; i++) {
             _adminSettle(questionIds[i], answerIds[i]);
@@ -220,21 +206,19 @@ contract QnAEscrow is Ownable {
         }
     }
 
-
-
     function _autoAcceptFirstAnswer(bytes32 questionId) internal {
         Question storage q = questions[questionId];
         if (q.asker == address(0)) revert QuestionNotFound();
         if (q.isResolved) revert QuestionAlreadyResolved();
         if (q.answerCount == 0) revert NoAnswersToAutoAccept();
-        
+
         if (block.timestamp < q.firstAnswerTs + AUTO_ACCEPT_DELAY) {
             revert CannotAutoAcceptYet();
         }
 
         bytes32 answerId = q.firstAnswerId;
         Answer storage a = answers[questionId][answerId];
-        
+
         q.isResolved = true;
         IERC20(q.token).safeTransfer(a.responder, q.rewardAmount);
 
@@ -265,8 +249,6 @@ contract QnAEscrow is Ownable {
 
         emit AdminRefunded(questionId, q.asker, q.rewardAmount);
     }
-
-
 
     function getQuestion(bytes32 questionId) external view returns (Question memory) {
         return questions[questionId];

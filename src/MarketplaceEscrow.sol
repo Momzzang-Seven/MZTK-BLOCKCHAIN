@@ -17,17 +17,19 @@ contract MarketplaceEscrow is Ownable {
     }
 
     mapping(bytes32 => ClassOrder) public orders;
-    
+
     mapping(address => bool) public isSupportedToken;
-    
+
     mapping(address => bool) public isRelayer;
 
-    event ClassPurchased(bytes32 indexed orderId, address indexed buyer, address indexed trainer, address token, uint256 price);
+    event ClassPurchased(
+        bytes32 indexed orderId, address indexed buyer, address indexed trainer, address token, uint256 price
+    );
     event ClassConfirmed(bytes32 indexed orderId, address indexed trainer, uint256 price);
     event ClassCancelled(bytes32 indexed orderId, address indexed buyer, uint256 price);
     event AdminSettled(bytes32 indexed orderId, address indexed trainer, uint256 price);
     event AdminRefunded(bytes32 indexed orderId, address indexed buyer, uint256 price);
-    
+
     event TokenSupportUpdated(address indexed token, bool isSupported);
     event RelayerUpdated(address indexed relayer, bool isAuthorized);
 
@@ -41,7 +43,6 @@ contract MarketplaceEscrow is Ownable {
     error OnlyTrainer();
     error OnlyRelayerOrOwner();
     error CannotBuyOwnClass();
-
 
     modifier onlyRelayerOrOwner() {
         if (!isRelayer[msg.sender] && msg.sender != owner()) revert OnlyRelayerOrOwner();
@@ -62,25 +63,15 @@ contract MarketplaceEscrow is Ownable {
         emit RelayerUpdated(relayer, isAuthorized);
     }
 
-    function purchaseClass(
-        bytes32 orderId,
-        address token,
-        address trainer,
-        uint256 price
-    ) external {
+    function purchaseClass(bytes32 orderId, address token, address trainer, uint256 price) external {
         if (token == address(0) || trainer == address(0) || orderId == bytes32(0)) revert InvalidAddress();
         if (!isSupportedToken[token]) revert UnsupportedToken();
         if (price == 0) revert InvalidPrice();
         if (msg.sender == trainer) revert CannotBuyOwnClass();
         if (orders[orderId].buyer != address(0)) revert OrderAlreadyExists();
 
-        orders[orderId] = ClassOrder({
-            price: price,
-            token: token,
-            isSettled: false,
-            buyer: msg.sender,
-            trainer: trainer
-        });
+        orders[orderId] =
+            ClassOrder({price: price, token: token, isSettled: false, buyer: msg.sender, trainer: trainer});
 
         IERC20(token).safeTransferFrom(msg.sender, address(this), price);
 

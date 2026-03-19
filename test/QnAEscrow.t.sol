@@ -138,14 +138,14 @@ contract QnAEscrowTest is Test {
     function test_Fail_CreateQuestion_BadHashOrReward() public {
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
-        
+
         bytes32 qId = keccak256(abi.encodePacked("question", qNonce++));
         vm.expectRevert(QnAEscrow.InvalidContentHash.selector);
         escrow.createQuestion(qId, address(token), bytes32(0), reward);
 
         vm.expectRevert(QnAEscrow.InvalidRewardAmount.selector);
         escrow.createQuestion(qId, address(token), questionHash, 0);
-        
+
         vm.stopPrank();
     }
 
@@ -286,7 +286,7 @@ contract QnAEscrowTest is Test {
         bytes32 qId = keccak256(abi.encodePacked("question", qNonce++));
         vm.startPrank(asker);
         badToken.approve(address(escrow), type(uint256).max);
-        
+
         vm.expectRevert(QnAEscrow.UnsupportedToken.selector);
         escrow.createQuestion(qId, address(badToken), questionHash, reward);
         vm.stopPrank();
@@ -308,10 +308,10 @@ contract QnAEscrowTest is Test {
 
         vm.prank(responder);
         escrow.submitAnswer(qId1, aId1, answerHash);
-        
+
         vm.prank(stranger);
         escrow.submitAnswer(qId2, aId2, answerHash);
-        
+
         bytes32[] memory qIds = new bytes32[](2);
         qIds[0] = qId1;
         qIds[1] = qId2;
@@ -336,7 +336,7 @@ contract QnAEscrowTest is Test {
     function test_BatchAdminRefund() public {
         bytes32 qId1 = _createQuestionNative();
         bytes32 qId2 = _createQuestionNative();
-        
+
         bytes32[] memory ids = new bytes32[](2);
         ids[0] = qId1;
         ids[1] = qId2;
@@ -345,7 +345,7 @@ contract QnAEscrowTest is Test {
         escrow.batchAdminRefund(ids);
 
         assertEq(token.balanceOf(asker), 10_000 ether);
-        
+
         assertTrue(escrow.getQuestion(qId1).isResolved);
         assertTrue(escrow.getQuestion(qId2).isResolved);
     }
@@ -353,21 +353,21 @@ contract QnAEscrowTest is Test {
     function test_RelayerFunctions() public {
         vm.prank(owner);
         escrow.updateRelayer(relayer, true);
-        
+
         bytes32 qId1 = _createQuestionNative();
         bytes32 qId2 = _createQuestionNative();
 
         bytes32 aId1 = keccak256(abi.encodePacked("a", aNonce++));
         vm.prank(responder);
         escrow.submitAnswer(qId1, aId1, answerHash);
-        
+
         // Relayer can execute settle and refund
         vm.prank(relayer);
         escrow.adminSettle(qId1, aId1);
-        
+
         vm.prank(relayer);
         escrow.adminRefund(qId2);
-        
+
         assertTrue(escrow.getQuestion(qId1).isResolved);
         assertTrue(escrow.getQuestion(qId2).isResolved);
     }
@@ -378,7 +378,7 @@ contract QnAEscrowTest is Test {
         bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
         escrow.submitAnswer(qId, aId, answerHash);
-        
+
         // Fast forward 7 days + 1 second
         vm.warp(block.timestamp + 7 days + 1);
 
@@ -386,7 +386,7 @@ contract QnAEscrowTest is Test {
 
         vm.prank(owner);
         escrow.autoAcceptFirstAnswer(qId);
-        
+
         assertEq(token.balanceOf(responder), responderBalBefore + reward);
         assertEq(token.balanceOf(address(escrow)), 0);
 
@@ -401,11 +401,11 @@ contract QnAEscrowTest is Test {
         bytes32 aId1 = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
         escrow.submitAnswer(qId1, aId1, answerHash);
-        
+
         bytes32 aId2 = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(stranger);
         escrow.submitAnswer(qId2, aId2, answerHash);
-        
+
         // Fast forward 7 days + 1 second
         vm.warp(block.timestamp + 7 days + 1);
 
@@ -418,7 +418,7 @@ contract QnAEscrowTest is Test {
 
         vm.prank(owner);
         escrow.batchAutoAcceptFirstAnswer(ids);
-        
+
         assertEq(token.balanceOf(responder), responderBalBefore + reward);
         assertEq(token.balanceOf(stranger), strangerBalBefore + reward);
 
@@ -432,7 +432,7 @@ contract QnAEscrowTest is Test {
         bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
         escrow.submitAnswer(qId, aId, answerHash);
-        
+
         // Fast forward less than 7 days
         vm.warp(block.timestamp + 6 days);
 
