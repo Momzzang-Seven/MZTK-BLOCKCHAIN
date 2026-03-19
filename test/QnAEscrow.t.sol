@@ -27,11 +27,14 @@ contract QnAEscrowTest is Test {
 
     address public responder = address(2);
     address public stranger = address(3);
+    address public owner = address(5);
     address public relayer = address(999);
 
     bytes32 public questionHash = keccak256("What is Solidity?");
     bytes32 public answerHash = keccak256("Solidity is a smart contract language.");
     uint256 public reward = 100 ether;
+    uint256 public qNonce = 1;
+    uint256 public aNonce = 1;
 
     // EIP-7702 Batch Account Simulation
     BatchImplementation public batchImpl;
@@ -40,12 +43,16 @@ contract QnAEscrowTest is Test {
         asker = vm.addr(askerPk);
 
         token = new MockToken();
-        escrow = new QnAEscrow();
+        escrow = new QnAEscrow(owner);
         batchImpl = new BatchImplementation();
 
         token.mint(asker, 10000 ether);
 
         vm.etch(asker, address(batchImpl).code);
+
+        // WhiteList Update
+        vm.prank(owner);
+        escrow.updateTokenSupport(address(token), true);
     }
 
     // ─────────────────────── Batch Execution Helper ───────────────────────
@@ -81,8 +88,8 @@ contract QnAEscrowTest is Test {
         BatchImplementation(payable(asker)).execute(calls, signature);
     }
 
-    function _createQuestionThroughBatch() internal returns (uint256 qId) {
-        qId = escrow.questionCount();
+    function _createQuestionThroughBatch() internal returns (bytes32 qId) {
+        qId = keccak256(abi.encodePacked("question", qNonce++));
 
         BatchImplementation.Call[] memory calls = new BatchImplementation.Call[](2);
 
@@ -93,7 +100,7 @@ contract QnAEscrowTest is Test {
         calls[1] = BatchImplementation.Call({
             to: address(escrow),
             value: 0,
-            data: abi.encodeWithSelector(QnAEscrow.createQuestion.selector, address(token), questionHash, reward)
+            data: abi.encodeWithSelector(QnAEscrow.createQuestion.selector, qId, address(token), questionHash, reward)
         });
 
         _executeBatchAsRelayer(calls);
@@ -103,15 +110,15 @@ contract QnAEscrowTest is Test {
     // ─────────────────── 질문 생성 (Gasless Batch) ───────────────────
 
     function test_CreateQuestion_GaslessBatch() public {
-        uint256 qId = _createQuestionThroughBatch();
+        bytes32 qId = _createQuestionThroughBatch();
 
-        (address a, address t, bytes32 ch, uint256 ra, bool resolved, uint256 ac) = escrow.getQuestion(qId);
-        assertEq(a, asker);
-        assertEq(t, address(token));
-        assertEq(ch, questionHash);
-        assertEq(ra, reward);
-        assertFalse(resolved);
-        assertEq(ac, 0);
+        QnAEscrow.Question memory q = escrow.getQuestion(qId);
+        assertEq(q.asker, asker);
+        assertEq(q.token, address(token));
+        assertEq(q.contentHash, questionHash);
+        assertEq(q.rewardAmount, reward);
+        assertFalse(q.isResolved);
+        assertEq(q.answerCount, 0);
 
         assertEq(token.balanceOf(address(escrow)), reward);
         assertEq(token.balanceOf(asker), 10000 ether - reward);
@@ -119,75 +126,81 @@ contract QnAEscrowTest is Test {
 
     // ─────────────────── 기능 테스트 (Native 호출) ───────────────────
 
-    function _createQuestionNative() internal returns (uint256) {
+    function _createQuestionNative() internal returns (bytes32) {
+        bytes32 qId = keccak256(abi.encodePacked("question", qNonce++));
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
-        uint256 qId = escrow.createQuestion(address(token), questionHash, reward);
+        escrow.createQuestion(qId, address(token), questionHash, reward);
         vm.stopPrank();
         return qId;
     }
 
-    function test_Fail_CreateQuestion_ZeroHash() public {
+    function test_Fail_CreateQuestion_BadHashOrReward() public {
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
+        
+        bytes32 qId = keccak256(abi.encodePacked("question", qNonce++));
         vm.expectRevert(QnAEscrow.InvalidContentHash.selector);
-        escrow.createQuestion(address(token), bytes32(0), reward);
-        vm.stopPrank();
-    }
+        escrow.createQuestion(qId, address(token), bytes32(0), reward);
 
-    function test_Fail_CreateQuestion_ZeroReward() public {
-        vm.startPrank(asker);
-        token.approve(address(escrow), type(uint256).max);
         vm.expectRevert(QnAEscrow.InvalidRewardAmount.selector);
-        escrow.createQuestion(address(token), questionHash, 0);
+        escrow.createQuestion(qId, address(token), questionHash, 0);
+        
         vm.stopPrank();
     }
 
     // ─────────────────── 답변 등록 ───────────────────
 
     function test_SubmitAnswer() public {
-        uint256 qId = _createQuestionNative();
+        bytes32 qId = _createQuestionNative();
 
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
-        uint256 aId = escrow.submitAnswer(qId, answerHash);
+        escrow.submitAnswer(qId, aId, answerHash);
 
-        (address r, bytes32 ch) = escrow.getAnswer(qId, aId);
-        assertEq(r, responder);
-        assertEq(ch, answerHash);
+        QnAEscrow.Answer memory a = escrow.getAnswer(qId, aId);
+        assertEq(a.responder, responder);
+        assertEq(a.contentHash, answerHash);
 
-        (,,,,, uint256 ac) = escrow.getQuestion(qId);
-        assertEq(ac, 1);
+        QnAEscrow.Question memory q = escrow.getQuestion(qId);
+        assertEq(q.answerCount, 1);
+        assertEq(q.firstAnswerId, aId);
+        assertEq(q.firstAnswerTs, block.timestamp);
     }
 
     function test_Fail_SelfAnswer() public {
-        uint256 qId = _createQuestionNative();
+        bytes32 qId = _createQuestionNative();
 
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(asker);
         vm.expectRevert(QnAEscrow.CannotAnswerOwnQuestion.selector);
-        escrow.submitAnswer(qId, answerHash);
+        escrow.submitAnswer(qId, aId, answerHash);
     }
 
     function test_Fail_AnswerResolvedQuestion() public {
-        uint256 qId = _createQuestionNative();
+        bytes32 qId = _createQuestionNative();
 
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
-        uint256 aId = escrow.submitAnswer(qId, answerHash);
+        escrow.submitAnswer(qId, aId, answerHash);
 
         vm.prank(asker);
         escrow.acceptAnswer(qId, aId);
 
+        bytes32 aId2 = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
         vm.expectRevert(QnAEscrow.QuestionAlreadyResolved.selector);
-        escrow.submitAnswer(qId, keccak256("Another answer"));
+        escrow.submitAnswer(qId, aId2, keccak256("Another answer"));
     }
 
     // ─────────────────── 답변 채택 ───────────────────
 
     function test_AcceptAnswer() public {
-        uint256 qId = _createQuestionNative();
+        bytes32 qId = _createQuestionNative();
 
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
-        uint256 aId = escrow.submitAnswer(qId, answerHash);
+        escrow.submitAnswer(qId, aId, answerHash);
 
         uint256 responderBalBefore = token.balanceOf(responder);
 
@@ -197,15 +210,16 @@ contract QnAEscrowTest is Test {
         assertEq(token.balanceOf(responder), responderBalBefore + reward);
         assertEq(token.balanceOf(address(escrow)), 0);
 
-        (,,,, bool resolved,) = escrow.getQuestion(qId);
-        assertTrue(resolved);
+        QnAEscrow.Question memory q = escrow.getQuestion(qId);
+        assertTrue(q.isResolved);
     }
 
     function test_Fail_AcceptByNonAsker() public {
-        uint256 qId = _createQuestionNative();
+        bytes32 qId = _createQuestionNative();
 
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
-        uint256 aId = escrow.submitAnswer(qId, answerHash);
+        escrow.submitAnswer(qId, aId, answerHash);
 
         vm.prank(stranger);
         vm.expectRevert(QnAEscrow.OnlyAskerCanAccept.selector);
@@ -213,10 +227,11 @@ contract QnAEscrowTest is Test {
     }
 
     function test_Fail_DoubleAccept() public {
-        uint256 qId = _createQuestionNative();
+        bytes32 qId = _createQuestionNative();
 
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
-        uint256 aId = escrow.submitAnswer(qId, answerHash);
+        escrow.submitAnswer(qId, aId, answerHash);
 
         vm.prank(asker);
         escrow.acceptAnswer(qId, aId);
@@ -229,7 +244,7 @@ contract QnAEscrowTest is Test {
     // ─────────────────── 질문 취소 ───────────────────
 
     function test_CancelQuestion() public {
-        uint256 qId = _createQuestionNative();
+        bytes32 qId = _createQuestionNative();
 
         vm.prank(asker);
         escrow.cancelQuestion(qId);
@@ -237,15 +252,16 @@ contract QnAEscrowTest is Test {
         assertEq(token.balanceOf(asker), 10000 ether); // Full refund
         assertEq(token.balanceOf(address(escrow)), 0);
 
-        (,,,, bool resolved,) = escrow.getQuestion(qId);
-        assertTrue(resolved);
+        QnAEscrow.Question memory q = escrow.getQuestion(qId);
+        assertTrue(q.isResolved);
     }
 
     function test_Fail_CancelWithAnswers() public {
-        uint256 qId = _createQuestionNative();
+        bytes32 qId = _createQuestionNative();
 
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
-        escrow.submitAnswer(qId, answerHash);
+        escrow.submitAnswer(qId, aId, answerHash);
 
         vm.prank(asker);
         vm.expectRevert(QnAEscrow.CannotCancelWithAnswers.selector);
@@ -253,21 +269,185 @@ contract QnAEscrowTest is Test {
     }
 
     function test_Fail_CancelByNonAsker() public {
-        uint256 qId = _createQuestionNative();
+        bytes32 qId = _createQuestionNative();
 
         vm.prank(stranger);
         vm.expectRevert(QnAEscrow.OnlyAskerCanAccept.selector);
         escrow.cancelQuestion(qId);
     }
 
-    function test_Fail_CancelResolvedQuestion() public {
-        uint256 qId = _createQuestionNative();
+    // ─────────────────── V2 Upgrade Features ───────────────────
 
+    function test_Fail_UnsupportedToken() public {
+        MockToken badToken = new MockToken();
         vm.prank(asker);
-        escrow.cancelQuestion(qId);
+        badToken.mint(asker, 100 ether);
 
+        bytes32 qId = keccak256(abi.encodePacked("question", qNonce++));
+        vm.startPrank(asker);
+        badToken.approve(address(escrow), type(uint256).max);
+        
+        vm.expectRevert(QnAEscrow.UnsupportedToken.selector);
+        escrow.createQuestion(qId, address(badToken), questionHash, reward);
+        vm.stopPrank();
+    }
+
+    function test_Fail_QuestionAlreadyExists() public {
+        bytes32 qId = _createQuestionNative();
         vm.prank(asker);
-        vm.expectRevert(QnAEscrow.QuestionAlreadyResolved.selector);
-        escrow.cancelQuestion(qId);
+        vm.expectRevert(QnAEscrow.QuestionAlreadyExists.selector);
+        escrow.createQuestion(qId, address(token), questionHash, reward);
+    }
+
+    function test_BatchAdminSettle() public {
+        bytes32 qId1 = _createQuestionNative();
+        bytes32 qId2 = _createQuestionNative();
+
+        bytes32 aId1 = keccak256(abi.encodePacked("a", aNonce++));
+        bytes32 aId2 = keccak256(abi.encodePacked("a", aNonce++));
+
+        vm.prank(responder);
+        escrow.submitAnswer(qId1, aId1, answerHash);
+        
+        vm.prank(stranger);
+        escrow.submitAnswer(qId2, aId2, answerHash);
+        
+        bytes32[] memory qIds = new bytes32[](2);
+        qIds[0] = qId1;
+        qIds[1] = qId2;
+
+        bytes32[] memory aIds = new bytes32[](2);
+        aIds[0] = aId1;
+        aIds[1] = aId2;
+
+        uint256 responderBalBefore = token.balanceOf(responder);
+        uint256 strangerBalBefore = token.balanceOf(stranger);
+
+        vm.prank(owner);
+        escrow.batchAdminSettle(qIds, aIds);
+
+        assertEq(token.balanceOf(responder), responderBalBefore + reward);
+        assertEq(token.balanceOf(stranger), strangerBalBefore + reward);
+
+        assertTrue(escrow.getQuestion(qId1).isResolved);
+        assertTrue(escrow.getQuestion(qId2).isResolved);
+    }
+
+    function test_BatchAdminRefund() public {
+        bytes32 qId1 = _createQuestionNative();
+        bytes32 qId2 = _createQuestionNative();
+        
+        bytes32[] memory ids = new bytes32[](2);
+        ids[0] = qId1;
+        ids[1] = qId2;
+
+        vm.prank(owner);
+        escrow.batchAdminRefund(ids);
+
+        assertEq(token.balanceOf(asker), 10_000 ether);
+        
+        assertTrue(escrow.getQuestion(qId1).isResolved);
+        assertTrue(escrow.getQuestion(qId2).isResolved);
+    }
+
+    function test_RelayerFunctions() public {
+        vm.prank(owner);
+        escrow.updateRelayer(relayer, true);
+        
+        bytes32 qId1 = _createQuestionNative();
+        bytes32 qId2 = _createQuestionNative();
+
+        bytes32 aId1 = keccak256(abi.encodePacked("a", aNonce++));
+        vm.prank(responder);
+        escrow.submitAnswer(qId1, aId1, answerHash);
+        
+        // Relayer can execute settle and refund
+        vm.prank(relayer);
+        escrow.adminSettle(qId1, aId1);
+        
+        vm.prank(relayer);
+        escrow.adminRefund(qId2);
+        
+        assertTrue(escrow.getQuestion(qId1).isResolved);
+        assertTrue(escrow.getQuestion(qId2).isResolved);
+    }
+
+    function test_AutoAcceptFirstAnswer() public {
+        bytes32 qId = _createQuestionNative();
+
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
+        vm.prank(responder);
+        escrow.submitAnswer(qId, aId, answerHash);
+        
+        // Fast forward 7 days + 1 second
+        vm.warp(block.timestamp + 7 days + 1);
+
+        uint256 responderBalBefore = token.balanceOf(responder);
+
+        vm.prank(owner);
+        escrow.autoAcceptFirstAnswer(qId);
+        
+        assertEq(token.balanceOf(responder), responderBalBefore + reward);
+        assertEq(token.balanceOf(address(escrow)), 0);
+
+        QnAEscrow.Question memory q = escrow.getQuestion(qId);
+        assertTrue(q.isResolved);
+    }
+
+    function test_BatchAutoAcceptFirstAnswer() public {
+        bytes32 qId1 = _createQuestionNative();
+        bytes32 qId2 = _createQuestionNative();
+
+        bytes32 aId1 = keccak256(abi.encodePacked("answer", aNonce++));
+        vm.prank(responder);
+        escrow.submitAnswer(qId1, aId1, answerHash);
+        
+        bytes32 aId2 = keccak256(abi.encodePacked("answer", aNonce++));
+        vm.prank(stranger);
+        escrow.submitAnswer(qId2, aId2, answerHash);
+        
+        // Fast forward 7 days + 1 second
+        vm.warp(block.timestamp + 7 days + 1);
+
+        bytes32[] memory ids = new bytes32[](2);
+        ids[0] = qId1;
+        ids[1] = qId2;
+
+        uint256 responderBalBefore = token.balanceOf(responder);
+        uint256 strangerBalBefore = token.balanceOf(stranger);
+
+        vm.prank(owner);
+        escrow.batchAutoAcceptFirstAnswer(ids);
+        
+        assertEq(token.balanceOf(responder), responderBalBefore + reward);
+        assertEq(token.balanceOf(stranger), strangerBalBefore + reward);
+
+        assertTrue(escrow.getQuestion(qId1).isResolved);
+        assertTrue(escrow.getQuestion(qId2).isResolved);
+    }
+
+    function test_Fail_AutoAcceptFirstAnswer_TooEarly() public {
+        bytes32 qId = _createQuestionNative();
+
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
+        vm.prank(responder);
+        escrow.submitAnswer(qId, aId, answerHash);
+        
+        // Fast forward less than 7 days
+        vm.warp(block.timestamp + 6 days);
+
+        vm.prank(owner);
+        vm.expectRevert(QnAEscrow.CannotAutoAcceptYet.selector);
+        escrow.autoAcceptFirstAnswer(qId);
+    }
+
+    function test_Fail_AutoAcceptFirstAnswer_NoAnswers() public {
+        bytes32 qId = _createQuestionNative();
+
+        vm.warp(block.timestamp + 8 days);
+
+        vm.prank(owner);
+        vm.expectRevert(QnAEscrow.NoAnswersToAutoAccept.selector);
+        escrow.autoAcceptFirstAnswer(qId);
     }
 }
