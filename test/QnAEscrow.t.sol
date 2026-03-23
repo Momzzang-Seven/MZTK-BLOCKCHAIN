@@ -302,8 +302,6 @@ contract QnAEscrowTest is Test {
         escrow.createQuestion(qId, address(token), reward);
     }
 
-
-
     function test_RelayerFunctions() public {
         vm.prank(owner);
         escrow.updateRelayer(relayer, true);
