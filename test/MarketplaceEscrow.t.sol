@@ -5,8 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {MarketplaceEscrow} from "../src/MarketplaceEscrow.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {BatchImplementation} from "../src/BatchImplementation.sol";
+import {IMarketplaceEscrow} from "../src/interfaces/IMarketplaceEscrow.sol";
 
 contract MockToken is ERC20 {
     constructor() ERC20("Mock", "MCK") {
@@ -65,17 +65,16 @@ contract MarketplaceEscrowTest is Test {
             )
         );
 
-        bytes32 CALL_TYPEHASH = keccak256("Call(address to,uint256 value,bytes data)");
-        bytes32 BATCH_TYPEHASH = keccak256("Batch(uint256 nonce,Call[] calls)Call(address to,uint256 value,bytes data)");
+        bytes32 callTypehash = keccak256("Call(address to,uint256 value,bytes data)");
+        bytes32 batchTypehash = keccak256("Batch(uint256 nonce,Call[] calls)Call(address to,uint256 value,bytes data)");
 
         bytes32[] memory callHashes = new bytes32[](calls.length);
         for (uint256 i = 0; i < calls.length; i++) {
-            callHashes[i] = keccak256(abi.encode(CALL_TYPEHASH, calls[i].to, calls[i].value, keccak256(calls[i].data)));
+            callHashes[i] = keccak256(abi.encode(callTypehash, calls[i].to, calls[i].value, keccak256(calls[i].data)));
         }
 
         uint256 currentNonce = BatchImplementation(payable(buyer)).txNonce();
-        bytes32 structHash =
-            keccak256(abi.encode(BATCH_TYPEHASH, currentNonce, keccak256(abi.encodePacked(callHashes))));
+        bytes32 structHash = keccak256(abi.encode(batchTypehash, currentNonce, keccak256(abi.encodePacked(callHashes))));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(buyerPk, digest);
@@ -111,13 +110,14 @@ contract MarketplaceEscrowTest is Test {
     function test_PurchaseClass_GaslessBatch() public {
         bytes32 orderId = _purchaseThroughBatch();
 
-        MarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
+        IMarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
 
+        assertEq(o.orderId, orderId);
         assertEq(o.buyer, buyer);
         assertEq(o.trainer, trainer);
         assertEq(o.token, address(token));
         assertEq(o.price, price);
-        assertFalse(o.isSettled);
+        assertEq(o.state, escrow.STATE_CREATED());
 
         assertEq(token.balanceOf(address(escrow)), price);
         assertEq(token.balanceOf(buyer), 10_000 ether - price);
@@ -145,14 +145,14 @@ contract MarketplaceEscrowTest is Test {
         // 100 ether total to trainer directly
         assertEq(token.balanceOf(trainer), trainerBalBefore + price);
 
-        MarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
-        assertTrue(o.isSettled);
+        IMarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
+        assertEq(o.state, escrow.STATE_CONFIRMED());
     }
 
     function test_Fail_ConfirmByNonBuyer() public {
         bytes32 orderId = _purchaseNative();
         vm.prank(stranger);
-        vm.expectRevert(MarketplaceEscrow.OnlyBuyer.selector);
+        vm.expectRevert(IMarketplaceEscrow.OnlyBuyer.selector);
         escrow.confirmClass(orderId);
     }
 
@@ -165,14 +165,14 @@ contract MarketplaceEscrowTest is Test {
         // Refund full price to buyer
         assertEq(token.balanceOf(buyer), 10_000 ether); // 원래 잔고 롤백
 
-        MarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
-        assertTrue(o.isSettled);
+        IMarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
+        assertEq(o.state, escrow.STATE_CANCELLED());
     }
 
     function test_Fail_CancelByNonTrainer() public {
         bytes32 orderId = _purchaseNative();
         vm.prank(buyer);
-        vm.expectRevert(MarketplaceEscrow.OnlyTrainer.selector);
+        vm.expectRevert(IMarketplaceEscrow.OnlyTrainer.selector);
         escrow.cancelClass(orderId);
     }
 
@@ -186,14 +186,14 @@ contract MarketplaceEscrowTest is Test {
 
         assertEq(token.balanceOf(trainer), trainerBalBefore + price);
 
-        MarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
-        assertTrue(o.isSettled);
+        IMarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
+        assertEq(o.state, escrow.STATE_ADMIN_SETTLED());
     }
 
     function test_Fail_AdminSettleByNonOwnerOrRelayer() public {
         bytes32 orderId = _purchaseNative();
         vm.prank(stranger);
-        vm.expectRevert(MarketplaceEscrow.OnlyRelayerOrOwner.selector);
+        vm.expectRevert(IMarketplaceEscrow.OnlyRelayerOrOwner.selector);
         escrow.adminSettle(orderId);
     }
 
@@ -205,14 +205,14 @@ contract MarketplaceEscrowTest is Test {
 
         assertEq(token.balanceOf(buyer), 10_000 ether);
 
-        MarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
-        assertTrue(o.isSettled);
+        IMarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
+        assertEq(o.state, escrow.STATE_ADMIN_REFUNDED());
     }
 
     function test_Fail_AdminRefundByNonOwner() public {
         bytes32 orderId = _purchaseNative();
         vm.prank(stranger);
-        vm.expectRevert(MarketplaceEscrow.OnlyRelayerOrOwner.selector);
+        vm.expectRevert(IMarketplaceEscrow.OnlyRelayerOrOwner.selector);
         escrow.adminRefund(orderId);
     }
 
@@ -221,7 +221,7 @@ contract MarketplaceEscrowTest is Test {
         token.approve(address(escrow), type(uint256).max);
 
         bytes32 orderId = keccak256(abi.encodePacked("order", orderNonce++));
-        vm.expectRevert(MarketplaceEscrow.CannotBuyOwnClass.selector);
+        vm.expectRevert(IMarketplaceEscrow.CannotBuyOwnClass.selector);
         escrow.purchaseClass(orderId, address(token), buyer, price);
 
         vm.stopPrank();
@@ -234,19 +234,19 @@ contract MarketplaceEscrowTest is Test {
         escrow.confirmClass(orderId);
 
         vm.prank(buyer);
-        vm.expectRevert(MarketplaceEscrow.AlreadySettled.selector);
+        vm.expectRevert(IMarketplaceEscrow.AlreadySettled.selector);
         escrow.confirmClass(orderId);
 
         vm.prank(trainer);
-        vm.expectRevert(MarketplaceEscrow.AlreadySettled.selector);
+        vm.expectRevert(IMarketplaceEscrow.AlreadySettled.selector);
         escrow.cancelClass(orderId);
 
         vm.prank(owner);
-        vm.expectRevert(MarketplaceEscrow.AlreadySettled.selector);
+        vm.expectRevert(IMarketplaceEscrow.AlreadySettled.selector);
         escrow.adminSettle(orderId);
 
         vm.prank(owner);
-        vm.expectRevert(MarketplaceEscrow.AlreadySettled.selector);
+        vm.expectRevert(IMarketplaceEscrow.AlreadySettled.selector);
         escrow.adminRefund(orderId);
     }
 
@@ -261,7 +261,7 @@ contract MarketplaceEscrowTest is Test {
         vm.startPrank(buyer);
         badToken.approve(address(escrow), type(uint256).max);
 
-        vm.expectRevert(MarketplaceEscrow.UnsupportedToken.selector);
+        vm.expectRevert(IMarketplaceEscrow.UnsupportedToken.selector);
         escrow.purchaseClass(orderId, address(badToken), trainer, price);
         vm.stopPrank();
     }
@@ -269,47 +269,8 @@ contract MarketplaceEscrowTest is Test {
     function test_Fail_OrderAlreadyExists() public {
         bytes32 orderId = _purchaseNative();
         vm.prank(buyer);
-        vm.expectRevert(MarketplaceEscrow.OrderAlreadyExists.selector);
+        vm.expectRevert(IMarketplaceEscrow.OrderAlreadyExists.selector);
         escrow.purchaseClass(orderId, address(token), trainer, price);
-    }
-
-    function test_BatchAdminSettle() public {
-        bytes32 orderId1 = _purchaseNative();
-        bytes32 orderId2 = _purchaseNative();
-
-        bytes32[] memory ids = new bytes32[](2);
-        ids[0] = orderId1;
-        ids[1] = orderId2;
-
-        uint256 trainerBalBefore = token.balanceOf(trainer);
-        vm.prank(owner);
-        escrow.batchAdminSettle(ids);
-
-        assertEq(token.balanceOf(trainer), trainerBalBefore + price * 2);
-
-        MarketplaceEscrow.ClassOrder memory o1 = escrow.getOrder(orderId1);
-        MarketplaceEscrow.ClassOrder memory o2 = escrow.getOrder(orderId2);
-        assertTrue(o1.isSettled);
-        assertTrue(o2.isSettled);
-    }
-
-    function test_BatchAdminRefund() public {
-        bytes32 orderId1 = _purchaseNative();
-        bytes32 orderId2 = _purchaseNative();
-
-        bytes32[] memory ids = new bytes32[](2);
-        ids[0] = orderId1;
-        ids[1] = orderId2;
-
-        vm.prank(owner);
-        escrow.batchAdminRefund(ids);
-
-        assertEq(token.balanceOf(buyer), 10_000 ether);
-
-        MarketplaceEscrow.ClassOrder memory o1 = escrow.getOrder(orderId1);
-        MarketplaceEscrow.ClassOrder memory o2 = escrow.getOrder(orderId2);
-        assertTrue(o1.isSettled);
-        assertTrue(o2.isSettled);
     }
 
     function test_RelayerFunctions() public {
@@ -327,9 +288,25 @@ contract MarketplaceEscrowTest is Test {
         vm.prank(relayer);
         escrow.adminRefund(orderId2);
 
-        MarketplaceEscrow.ClassOrder memory o1 = escrow.getOrder(orderId1);
-        MarketplaceEscrow.ClassOrder memory o2 = escrow.getOrder(orderId2);
-        assertTrue(o1.isSettled);
-        assertTrue(o2.isSettled);
+        IMarketplaceEscrow.ClassOrder memory o1 = escrow.getOrder(orderId1);
+        IMarketplaceEscrow.ClassOrder memory o2 = escrow.getOrder(orderId2);
+        assertEq(o1.state, escrow.STATE_ADMIN_SETTLED());
+        assertEq(o2.state, escrow.STATE_ADMIN_REFUNDED());
+    }
+
+    function test_GetOrders() public {
+        bytes32 orderId1 = _purchaseNative();
+        bytes32 orderId2 = _purchaseNative();
+
+        bytes32[] memory ids = new bytes32[](2);
+        ids[0] = orderId1;
+        ids[1] = orderId2;
+
+        IMarketplaceEscrow.ClassOrder[] memory qs = escrow.getOrders(ids);
+        assertEq(qs.length, 2);
+        assertEq(qs[0].orderId, orderId1);
+        assertEq(qs[1].orderId, orderId2);
+        assertEq(qs[0].state, escrow.STATE_CREATED());
+        assertEq(qs[1].state, escrow.STATE_CREATED());
     }
 }
