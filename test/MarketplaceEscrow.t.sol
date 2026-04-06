@@ -156,23 +156,50 @@ contract MarketplaceEscrowTest is Test {
         escrow.confirmClass(orderId);
     }
 
-    function test_CancelClass() public {
+    function test_CancelClass_ByTrainer() public {
         bytes32 orderId = _purchaseNative();
 
         vm.prank(trainer);
         escrow.cancelClass(orderId);
 
         // Refund full price to buyer
-        assertEq(token.balanceOf(buyer), 10_000 ether); // 원래 잔고 롤백
+        assertEq(token.balanceOf(buyer), 10_000 ether);
 
         IMarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
         assertEq(o.state, escrow.STATE_CANCELLED());
     }
 
-    function test_Fail_CancelByNonTrainer() public {
+    function test_CancelClass_ByBuyer() public {
         bytes32 orderId = _purchaseNative();
+
         vm.prank(buyer);
-        vm.expectRevert(IMarketplaceEscrow.OnlyTrainer.selector);
+        escrow.cancelClass(orderId);
+
+        assertEq(token.balanceOf(buyer), 10_000 ether);
+
+        IMarketplaceEscrow.ClassOrder memory o = escrow.getOrder(orderId);
+        assertEq(o.state, escrow.STATE_CANCELLED());
+    }
+
+    function test_Fail_CancelByStranger() public {
+        bytes32 orderId = _purchaseNative();
+        vm.prank(stranger);
+        vm.expectRevert(IMarketplaceEscrow.OnlyBuyerOrTrainer.selector);
+        escrow.cancelClass(orderId);
+    }
+
+    function test_Fail_CancelAfterConfirmed() public {
+        bytes32 orderId = _purchaseNative();
+
+        vm.prank(buyer);
+        escrow.confirmClass(orderId);
+
+        vm.prank(trainer);
+        vm.expectRevert(IMarketplaceEscrow.AlreadySettled.selector);
+        escrow.cancelClass(orderId);
+
+        vm.prank(buyer);
+        vm.expectRevert(IMarketplaceEscrow.AlreadySettled.selector);
         escrow.cancelClass(orderId);
     }
 

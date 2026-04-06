@@ -76,7 +76,7 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
 
         if (o.buyer == address(0)) revert OrderNotFound();
         if (o.state != STATE_CREATED) revert AlreadySettled();
-        if (msg.sender != o.trainer) revert OnlyTrainer();
+        if (msg.sender != o.buyer && msg.sender != o.trainer) revert OnlyBuyerOrTrainer();
 
         o.state = STATE_CANCELLED;
         IERC20(o.token).safeTransfer(o.buyer, o.price);

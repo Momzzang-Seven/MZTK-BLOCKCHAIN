@@ -84,6 +84,27 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit AnswerSubmitted(questionId, answerId, msg.sender, contentHash);
     }
 
+    function deleteAnswer(bytes32 questionId, bytes32 answerId) external {
+        Question storage q = questions[questionId];
+
+        if (q.asker == address(0)) revert QuestionNotFound();
+        if (q.state != STATE_CREATED && q.state != STATE_ANSWERED) revert QuestionAlreadyResolved();
+
+        Answer storage a = answers[questionId][answerId];
+        if (a.responder == address(0)) revert AnswerNotFound();
+        if (msg.sender != a.responder) revert OnlyResponderCanDelete();
+
+        address responder = a.responder;
+        delete answers[questionId][answerId];
+
+        q.answerCount -= 1;
+        if (q.answerCount == 0) {
+            q.state = STATE_CREATED;
+        }
+
+        emit AnswerDeleted(questionId, answerId, responder);
+    }
+
     function acceptAnswer(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external {
         Question storage q = questions[questionId];
 
@@ -103,19 +124,19 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit AnswerAccepted(questionId, answerId, a.responder, q.rewardAmount, contentHash);
     }
 
-    function cancelQuestion(bytes32 questionId) external {
+    function deleteQuestion(bytes32 questionId) external {
         Question storage q = questions[questionId];
 
         if (q.asker == address(0)) revert QuestionNotFound();
         if (q.state != STATE_CREATED && q.state != STATE_ANSWERED) revert QuestionAlreadyResolved();
         if (msg.sender != q.asker) revert OnlyAskerCanAccept();
-        if (q.answerCount > 0) revert CannotCancelWithAnswers();
+        if (q.answerCount > 0) revert CannotDeleteWithAnswers();
 
         q.state = STATE_DELETED;
 
         IERC20(q.token).safeTransfer(q.asker, q.rewardAmount);
 
-        emit QuestionCancelled(questionId);
+        emit QuestionDeleted(questionId);
     }
 
     function adminSettle(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external onlyRelayerOrOwner {
@@ -165,5 +186,13 @@ contract QnAEscrow is IQnAEscrow, Ownable {
 
     function getAnswer(bytes32 questionId, bytes32 answerId) external view returns (Answer memory) {
         return answers[questionId][answerId];
+    }
+
+    function getAnswers(bytes32 questionId, bytes32[] calldata answerIds) external view returns (Answer[] memory) {
+        Answer[] memory result = new Answer[](answerIds.length);
+        for (uint256 i = 0; i < answerIds.length; i++) {
+            result[i] = answers[questionId][answerIds[i]];
+        }
+        return result;
     }
 }

@@ -28,7 +28,7 @@ interface IMarketplaceEscrow {
     error OrderNotFound();
     error AlreadySettled();
     error OnlyBuyer();
-    error OnlyTrainer();
+    error OnlyBuyerOrTrainer();
     error OnlyRelayerOrOwner();
     error CannotBuyOwnClass();
 

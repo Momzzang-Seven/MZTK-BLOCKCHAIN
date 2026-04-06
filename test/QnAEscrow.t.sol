@@ -246,11 +246,11 @@ contract QnAEscrowTest is Test {
 
     // ─────────────────── 질문 취소 ───────────────────
 
-    function test_CancelQuestion() public {
+    function test_deleteQuestion() public {
         bytes32 qId = _createQuestionNative();
 
         vm.prank(asker);
-        escrow.cancelQuestion(qId);
+        escrow.deleteQuestion(qId);
 
         assertEq(token.balanceOf(asker), 10000 ether); // Full refund
         assertEq(token.balanceOf(address(escrow)), 0);
@@ -259,7 +259,7 @@ contract QnAEscrowTest is Test {
         assertEq(q.state, escrow.STATE_DELETED());
     }
 
-    function test_Fail_CancelWithAnswers() public {
+    function test_Fail_DeleteWithAnswers() public {
         bytes32 qId = _createQuestionNative();
 
         bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
@@ -267,16 +267,115 @@ contract QnAEscrowTest is Test {
         escrow.submitAnswer(qId, aId, answerHash);
 
         vm.prank(asker);
-        vm.expectRevert(IQnAEscrow.CannotCancelWithAnswers.selector);
-        escrow.cancelQuestion(qId);
+        vm.expectRevert(IQnAEscrow.CannotDeleteWithAnswers.selector);
+        escrow.deleteQuestion(qId);
     }
 
-    function test_Fail_CancelByNonAsker() public {
+    function test_Fail_DeleteByNonAsker() public {
         bytes32 qId = _createQuestionNative();
 
         vm.prank(stranger);
         vm.expectRevert(IQnAEscrow.OnlyAskerCanAccept.selector);
-        escrow.cancelQuestion(qId);
+        escrow.deleteQuestion(qId);
+    }
+
+    // ─────────────────── 답변 삭제 ───────────────────
+
+    function test_DeleteAnswer() public {
+        bytes32 qId = _createQuestionNative();
+
+        bytes32 aId1 = keccak256(abi.encodePacked("answer", aNonce++));
+        bytes32 aId2 = keccak256(abi.encodePacked("answer", aNonce++));
+        vm.prank(responder);
+        escrow.submitAnswer(qId, aId1, answerHash);
+        vm.prank(stranger);
+        escrow.submitAnswer(qId, aId2, keccak256("Another answer"));
+
+        IQnAEscrow.Question memory q = escrow.getQuestion(qId);
+        assertEq(q.answerCount, 2);
+        assertEq(q.state, escrow.STATE_ANSWERED());
+
+        // Delete first answer
+        vm.prank(responder);
+        escrow.deleteAnswer(qId, aId1);
+
+        q = escrow.getQuestion(qId);
+        assertEq(q.answerCount, 1);
+        assertEq(q.state, escrow.STATE_ANSWERED());
+
+        // Verify answer is deleted
+        IQnAEscrow.Answer memory a = escrow.getAnswer(qId, aId1);
+        assertEq(a.responder, address(0));
+    }
+
+    function test_DeleteAnswer_LastAnswer_ResetState() public {
+        bytes32 qId = _createQuestionNative();
+
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
+        vm.prank(responder);
+        escrow.submitAnswer(qId, aId, answerHash);
+
+        IQnAEscrow.Question memory q = escrow.getQuestion(qId);
+        assertEq(q.state, escrow.STATE_ANSWERED());
+
+        // Delete the only answer → state should reset to CREATED
+        vm.prank(responder);
+        escrow.deleteAnswer(qId, aId);
+
+        q = escrow.getQuestion(qId);
+        assertEq(q.answerCount, 0);
+        assertEq(q.state, escrow.STATE_CREATED());
+    }
+
+    function test_Fail_DeleteAnswerByNonResponder() public {
+        bytes32 qId = _createQuestionNative();
+
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
+        vm.prank(responder);
+        escrow.submitAnswer(qId, aId, answerHash);
+
+        vm.prank(stranger);
+        vm.expectRevert(IQnAEscrow.OnlyResponderCanDelete.selector);
+        escrow.deleteAnswer(qId, aId);
+    }
+
+    function test_Fail_DeleteAnswerAfterAccepted() public {
+        bytes32 qId = _createQuestionNative();
+
+        bytes32 aId = keccak256(abi.encodePacked("answer", aNonce++));
+        vm.prank(responder);
+        escrow.submitAnswer(qId, aId, answerHash);
+
+        vm.prank(asker);
+        escrow.acceptAnswer(qId, aId, acceptedHash);
+
+        vm.prank(responder);
+        vm.expectRevert(IQnAEscrow.QuestionAlreadyResolved.selector);
+        escrow.deleteAnswer(qId, aId);
+    }
+
+    // ─────────────────── 답변 배치 조회 ───────────────────
+
+    function test_GetAnswers() public {
+        bytes32 qId = _createQuestionNative();
+
+        bytes32 aId1 = keccak256(abi.encodePacked("answer", aNonce++));
+        bytes32 aId2 = keccak256(abi.encodePacked("answer", aNonce++));
+        vm.prank(responder);
+        escrow.submitAnswer(qId, aId1, answerHash);
+        vm.prank(stranger);
+        escrow.submitAnswer(qId, aId2, keccak256("Another answer"));
+
+        bytes32[] memory ids = new bytes32[](2);
+        ids[0] = aId1;
+        ids[1] = aId2;
+
+        IQnAEscrow.Answer[] memory result = escrow.getAnswers(qId, ids);
+        assertEq(result.length, 2);
+        assertEq(result[0].responder, responder);
+        assertEq(result[1].responder, stranger);
+        assertEq(result[0].answerId, aId1);
+        assertEq(result[1].answerId, aId2);
     }
 
     // ─────────────────── V2 Upgrade Features ───────────────────
