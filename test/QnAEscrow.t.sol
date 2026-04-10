@@ -103,7 +103,7 @@ contract QnAEscrowTest is Test {
         calls[1] = BatchImplementation.Call({
             to: address(escrow),
             value: 0,
-            data: abi.encodeWithSelector(QnAEscrow.createQuestion.selector, qId, address(token), reward)
+            data: abi.encodeWithSelector(QnAEscrow.createQuestion.selector, qId, address(token), reward, questionHash)
         });
 
         _executeBatchAsRelayer(calls);
@@ -119,7 +119,7 @@ contract QnAEscrowTest is Test {
         assertEq(q.questionId, qId);
         assertEq(q.asker, asker);
         assertEq(q.token, address(token));
-        assertEq(q.contentHash, bytes32(0));
+        assertEq(q.acceptedAnswerId, bytes32(0));
         assertEq(q.rewardAmount, reward);
         assertEq(q.state, escrow.STATE_CREATED());
         assertEq(q.answerCount, 0);
@@ -134,7 +134,7 @@ contract QnAEscrowTest is Test {
         bytes32 qId = keccak256(abi.encodePacked("question", qNonce++));
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
-        escrow.createQuestion(qId, address(token), reward);
+        escrow.createQuestion(qId, address(token), reward, questionHash);
         vm.stopPrank();
         return qId;
     }
@@ -146,7 +146,7 @@ contract QnAEscrowTest is Test {
         bytes32 qId = keccak256(abi.encodePacked("question", qNonce++));
 
         vm.expectRevert(IQnAEscrow.InvalidRewardAmount.selector);
-        escrow.createQuestion(qId, address(token), 0);
+        escrow.createQuestion(qId, address(token), 0, questionHash);
 
         vm.stopPrank();
     }
@@ -187,7 +187,7 @@ contract QnAEscrowTest is Test {
         escrow.submitAnswer(qId, aId, answerHash);
 
         vm.prank(asker);
-        escrow.acceptAnswer(qId, aId, acceptedHash);
+        escrow.acceptAnswer(qId, aId, questionHash, answerHash);
 
         bytes32 aId2 = keccak256(abi.encodePacked("answer", aNonce++));
         vm.prank(responder);
@@ -207,14 +207,14 @@ contract QnAEscrowTest is Test {
         uint256 responderBalBefore = token.balanceOf(responder);
 
         vm.prank(asker);
-        escrow.acceptAnswer(qId, aId, acceptedHash);
+        escrow.acceptAnswer(qId, aId, questionHash, answerHash);
 
         assertEq(token.balanceOf(responder), responderBalBefore + reward);
         assertEq(token.balanceOf(address(escrow)), 0);
 
         IQnAEscrow.Question memory q = escrow.getQuestion(qId);
         assertEq(q.state, escrow.STATE_PAID_OUT());
-        assertEq(q.contentHash, acceptedHash);
+        assertEq(q.acceptedAnswerId, aId);
     }
 
     function test_Fail_AcceptByNonAsker() public {
@@ -226,7 +226,7 @@ contract QnAEscrowTest is Test {
 
         vm.prank(stranger);
         vm.expectRevert(IQnAEscrow.OnlyAskerCanAccept.selector);
-        escrow.acceptAnswer(qId, aId, acceptedHash);
+        escrow.acceptAnswer(qId, aId, questionHash, answerHash);
     }
 
     function test_Fail_DoubleAccept() public {
@@ -237,11 +237,11 @@ contract QnAEscrowTest is Test {
         escrow.submitAnswer(qId, aId, answerHash);
 
         vm.prank(asker);
-        escrow.acceptAnswer(qId, aId, acceptedHash);
+        escrow.acceptAnswer(qId, aId, questionHash, answerHash);
 
         vm.prank(asker);
         vm.expectRevert(IQnAEscrow.QuestionAlreadyResolved.selector);
-        escrow.acceptAnswer(qId, aId, acceptedHash);
+        escrow.acceptAnswer(qId, aId, questionHash, answerHash);
     }
 
     // ─────────────────── 질문 취소 ───────────────────
@@ -347,7 +347,7 @@ contract QnAEscrowTest is Test {
         escrow.submitAnswer(qId, aId, answerHash);
 
         vm.prank(asker);
-        escrow.acceptAnswer(qId, aId, acceptedHash);
+        escrow.acceptAnswer(qId, aId, questionHash, answerHash);
 
         vm.prank(responder);
         vm.expectRevert(IQnAEscrow.QuestionAlreadyResolved.selector);
@@ -390,7 +390,7 @@ contract QnAEscrowTest is Test {
         badToken.approve(address(escrow), type(uint256).max);
 
         vm.expectRevert(IQnAEscrow.UnsupportedToken.selector);
-        escrow.createQuestion(qId, address(badToken), reward);
+        escrow.createQuestion(qId, address(badToken), reward, questionHash);
         vm.stopPrank();
     }
 
@@ -398,7 +398,7 @@ contract QnAEscrowTest is Test {
         bytes32 qId = _createQuestionNative();
         vm.prank(asker);
         vm.expectRevert(IQnAEscrow.QuestionAlreadyExists.selector);
-        escrow.createQuestion(qId, address(token), reward);
+        escrow.createQuestion(qId, address(token), reward, questionHash);
     }
 
     function test_RelayerFunctions() public {
@@ -414,13 +414,13 @@ contract QnAEscrowTest is Test {
 
         // Relayer can execute settle and refund
         vm.prank(relayer);
-        escrow.adminSettle(qId1, aId1, acceptedHash);
+        escrow.adminSettle(qId1, aId1, questionHash, answerHash);
 
         vm.prank(relayer);
         escrow.adminRefund(qId2);
 
         assertEq(escrow.getQuestion(qId1).state, escrow.STATE_ADMIN_SETTLED());
-        assertEq(escrow.getQuestion(qId1).contentHash, acceptedHash);
+        assertEq(escrow.getQuestion(qId1).acceptedAnswerId, aId1);
         assertEq(escrow.getQuestion(qId2).state, escrow.STATE_DELETED());
     }
 

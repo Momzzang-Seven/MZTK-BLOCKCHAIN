@@ -42,17 +42,19 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit RelayerUpdated(relayer, isAuthorized);
     }
 
-    function createQuestion(bytes32 questionId, address token, uint256 rewardAmount) external {
+    function createQuestion(bytes32 questionId, address token, uint256 rewardAmount, bytes32 questionHash) external {
         if (token == address(0)) revert InvalidAddress();
         if (questionId == bytes32(0)) revert InvalidAddress();
         if (!isSupportedToken[token]) revert UnsupportedToken();
         if (rewardAmount == 0) revert InvalidRewardAmount();
         if (questions[questionId].asker != address(0)) revert QuestionAlreadyExists();
+        if (questionHash == bytes32(0)) revert InvalidContentHash();
 
         questions[questionId] = Question({
             questionId: questionId,
             rewardAmount: rewardAmount,
-            contentHash: bytes32(0),
+            acceptedAnswerId: bytes32(0),
+            questionHash: questionHash,
             token: token,
             asker: msg.sender,
             answerCount: 0,
@@ -62,6 +64,19 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         IERC20(token).safeTransferFrom(msg.sender, address(this), rewardAmount);
 
         emit QuestionCreated(questionId, msg.sender, token, rewardAmount);
+    }
+
+    function updateQuestion(bytes32 questionId, bytes32 newQuestionHash) external {
+        Question storage q = questions[questionId];
+
+        if (q.asker == address(0)) revert QuestionNotFound();
+        if (q.state != STATE_CREATED && q.state != STATE_ANSWERED) revert QuestionAlreadyResolved();
+        if (msg.sender != q.asker) revert OnlyAskerCanAccept();
+        if (q.answerCount > 0) revert CannotUpdateWithAnswers();
+        if (newQuestionHash == bytes32(0)) revert InvalidContentHash();
+
+        q.questionHash = newQuestionHash;
+        emit QuestionUpdated(questionId, msg.sender, newQuestionHash);
     }
 
     function submitAnswer(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external {
@@ -82,6 +97,21 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         answers[questionId][answerId] = Answer({answerId: answerId, contentHash: contentHash, responder: msg.sender});
 
         emit AnswerSubmitted(questionId, answerId, msg.sender, contentHash);
+    }
+
+    function updateAnswer(bytes32 questionId, bytes32 answerId, bytes32 newContentHash) external {
+        Question storage q = questions[questionId];
+
+        if (q.asker == address(0)) revert QuestionNotFound();
+        if (q.state != STATE_CREATED && q.state != STATE_ANSWERED) revert QuestionAlreadyResolved();
+
+        Answer storage a = answers[questionId][answerId];
+        if (a.responder == address(0)) revert AnswerNotFound();
+        if (msg.sender != a.responder) revert OnlyResponderCanUpdate();
+        if (newContentHash == bytes32(0)) revert InvalidContentHash();
+
+        a.contentHash = newContentHash;
+        emit AnswerUpdated(questionId, answerId, msg.sender, newContentHash);
     }
 
     function deleteAnswer(bytes32 questionId, bytes32 answerId) external {
@@ -105,23 +135,24 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit AnswerDeleted(questionId, answerId, responder);
     }
 
-    function acceptAnswer(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external {
+    function acceptAnswer(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash) external {
         Question storage q = questions[questionId];
 
         if (q.asker == address(0)) revert QuestionNotFound();
         if (q.state != STATE_CREATED && q.state != STATE_ANSWERED) revert QuestionAlreadyResolved();
         if (msg.sender != q.asker) revert OnlyAskerCanAccept();
-        if (contentHash == bytes32(0)) revert InvalidContentHash();
+        if (q.questionHash != questionHash) revert HashMismatch();
 
         Answer storage a = answers[questionId][answerId];
         if (a.responder == address(0)) revert AnswerNotFound();
+        if (a.contentHash != contentHash) revert HashMismatch();
 
         q.state = STATE_PAID_OUT;
-        q.contentHash = contentHash;
+        q.acceptedAnswerId = answerId;
 
         IERC20(q.token).safeTransfer(a.responder, q.rewardAmount);
 
-        emit AnswerAccepted(questionId, answerId, a.responder, q.rewardAmount, contentHash);
+        emit AnswerAccepted(questionId, answerId, a.responder, q.rewardAmount, questionHash, contentHash);
     }
 
     function deleteQuestion(bytes32 questionId) external {
@@ -139,21 +170,25 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit QuestionDeleted(questionId);
     }
 
-    function adminSettle(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external onlyRelayerOrOwner {
+    function adminSettle(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash)
+        external
+        onlyRelayerOrOwner
+    {
         Question storage q = questions[questionId];
         if (q.asker == address(0)) revert QuestionNotFound();
         if (q.state != STATE_CREATED && q.state != STATE_ANSWERED) revert QuestionAlreadyResolved();
-        if (contentHash == bytes32(0)) revert InvalidContentHash();
+        if (q.questionHash != questionHash) revert HashMismatch();
 
         Answer storage a = answers[questionId][answerId];
         if (a.responder == address(0)) revert AnswerNotFound();
+        if (a.contentHash != contentHash) revert HashMismatch();
 
         q.state = STATE_ADMIN_SETTLED;
-        q.contentHash = contentHash;
+        q.acceptedAnswerId = answerId;
 
         IERC20(q.token).safeTransfer(a.responder, q.rewardAmount);
 
-        emit AdminSettled(questionId, answerId, a.responder, q.rewardAmount, contentHash);
+        emit AdminSettled(questionId, answerId, a.responder, q.rewardAmount, questionHash, contentHash);
     }
 
     function adminRefund(bytes32 questionId) external onlyRelayerOrOwner {

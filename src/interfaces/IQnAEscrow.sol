@@ -5,7 +5,8 @@ interface IQnAEscrow {
     struct Question {
         bytes32 questionId;
         uint256 rewardAmount;
-        bytes32 contentHash;
+        bytes32 acceptedAnswerId;
+        bytes32 questionHash;
         address token;
         address asker;
         uint32 answerCount;
@@ -29,6 +30,7 @@ interface IQnAEscrow {
         bytes32 indexed answerId,
         address indexed responder,
         uint256 rewardAmount,
+        bytes32 questionHash,
         bytes32 contentHash
     );
 
@@ -39,10 +41,16 @@ interface IQnAEscrow {
         bytes32 indexed answerId,
         address indexed responder,
         uint256 rewardAmount,
+        bytes32 questionHash,
         bytes32 contentHash
     );
     event AdminRefunded(bytes32 indexed questionId, address indexed asker, uint256 rewardAmount);
     event AnswerDeleted(bytes32 indexed questionId, bytes32 indexed answerId, address indexed responder);
+
+    event QuestionUpdated(bytes32 indexed questionId, address indexed asker, bytes32 newQuestionHash);
+    event AnswerUpdated(
+        bytes32 indexed questionId, bytes32 indexed answerId, address indexed responder, bytes32 newContentHash
+    );
 
     event TokenSupportUpdated(address indexed token, bool isSupported);
     event RelayerUpdated(address indexed relayer, bool isAuthorized);
@@ -60,15 +68,20 @@ interface IQnAEscrow {
     error AnswerNotFound();
     error CannotAnswerOwnQuestion();
     error CannotDeleteWithAnswers();
+    error CannotUpdateWithAnswers();
     error OnlyResponderCanDelete();
+    error OnlyResponderCanUpdate();
+    error HashMismatch();
 
     function updateTokenSupport(address token, bool isSupported) external;
     function updateRelayer(address relayer, bool isAuthorized) external;
-    function createQuestion(bytes32 questionId, address token, uint256 rewardAmount) external;
+    function createQuestion(bytes32 questionId, address token, uint256 rewardAmount, bytes32 questionHash) external;
     function submitAnswer(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external;
-    function acceptAnswer(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external;
+    function updateQuestion(bytes32 questionId, bytes32 newQuestionHash) external;
+    function updateAnswer(bytes32 questionId, bytes32 answerId, bytes32 newContentHash) external;
+    function acceptAnswer(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash) external;
     function deleteQuestion(bytes32 questionId) external;
-    function adminSettle(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external;
+    function adminSettle(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash) external;
     function adminRefund(bytes32 questionId) external;
     function getQuestion(bytes32 questionId) external view returns (Question memory);
     function getQuestions(bytes32[] calldata questionIds) external view returns (Question[] memory);
