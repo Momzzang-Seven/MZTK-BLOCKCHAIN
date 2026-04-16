@@ -25,7 +25,9 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
     }
 
     function _onlyRelayerOrOwner() internal view {
-        if (!isRelayer[msg.sender] && msg.sender != owner()) revert OnlyRelayerOrOwner();
+        if (!isRelayer[msg.sender] && msg.sender != owner()) {
+            revert OnlyRelayerOrOwner();
+        }
     }
 
     constructor(address initialOwner) Ownable(initialOwner) {}
@@ -58,12 +60,11 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
         emit ClassPurchased(orderId, msg.sender, trainer, token, price);
     }
 
-    function confirmClass(bytes32 orderId) external {
+    function confirmClass(bytes32 orderId) external onlyRelayerOrOwner {
         ClassOrder storage o = orders[orderId];
 
         if (o.buyer == address(0)) revert OrderNotFound();
         if (o.state != STATE_CREATED) revert AlreadySettled();
-        if (msg.sender != o.buyer) revert OnlyBuyer();
 
         o.state = STATE_CONFIRMED;
         IERC20(o.token).safeTransfer(o.trainer, o.price);
@@ -71,12 +72,11 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
         emit ClassConfirmed(orderId, o.trainer, o.price);
     }
 
-    function cancelClass(bytes32 orderId) external {
+    function cancelClass(bytes32 orderId) external onlyRelayerOrOwner {
         ClassOrder storage o = orders[orderId];
 
         if (o.buyer == address(0)) revert OrderNotFound();
         if (o.state != STATE_CREATED) revert AlreadySettled();
-        if (msg.sender != o.buyer && msg.sender != o.trainer) revert OnlyBuyerOrTrainer();
 
         o.state = STATE_CANCELLED;
         IERC20(o.token).safeTransfer(o.buyer, o.price);
