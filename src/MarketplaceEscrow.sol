@@ -9,16 +9,21 @@ import {IMarketplaceEscrow} from "./interfaces/IMarketplaceEscrow.sol";
 contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
     using SafeERC20 for IERC20;
 
+    // State constants representing the lifecycle of an order
     uint16 public constant STATE_CREATED = 1000;
     uint16 public constant STATE_CONFIRMED = 2000;
     uint16 public constant STATE_CANCELLED = 3000;
     uint16 public constant STATE_ADMIN_SETTLED = 4000;
     uint16 public constant STATE_ADMIN_REFUNDED = 5000;
 
+    // Mapping from order ID to ClassOrder details
     mapping(bytes32 => ClassOrder) public orders;
+    // Mapping to track supported ERC20 tokens for payment
     mapping(address => bool) public isSupportedToken;
+    // Mapping to track authorized relayer addresses
     mapping(address => bool) public isRelayer;
 
+    // Modifier to restrict access to only relayer or owner
     modifier onlyRelayerOrOwner() {
         _onlyRelayerOrOwner();
         _;
@@ -32,18 +37,21 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
 
     constructor(address initialOwner) Ownable(initialOwner) {}
 
+    // Updates the support status of an ERC20 token
     function updateTokenSupport(address token, bool isSupported) external onlyOwner {
         if (token == address(0)) revert InvalidAddress();
         isSupportedToken[token] = isSupported;
         emit TokenSupportUpdated(token, isSupported);
     }
 
+    // Updates the authorization status of a relayer
     function updateRelayer(address relayer, bool isAuthorized) external onlyOwner {
         if (relayer == address(0)) revert InvalidAddress();
         isRelayer[relayer] = isAuthorized;
         emit RelayerUpdated(relayer, isAuthorized);
     }
 
+    // Purchases a class by locking the required token amount in the escrow
     function purchaseClass(bytes32 orderId, address token, address trainer, uint256 price) external {
         if (token == address(0) || trainer == address(0) || orderId == bytes32(0)) revert InvalidAddress();
         if (!isSupportedToken[token]) revert UnsupportedToken();
@@ -60,6 +68,7 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
         emit ClassPurchased(orderId, msg.sender, trainer, token, price);
     }
 
+    // Confirms a class and transfers the locked tokens to the trainer
     function confirmClass(bytes32 orderId) external onlyRelayerOrOwner {
         ClassOrder storage o = orders[orderId];
 
@@ -72,6 +81,7 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
         emit ClassConfirmed(orderId, o.trainer, o.price);
     }
 
+    // Cancels a class and refunds the locked tokens to the buyer
     function cancelClass(bytes32 orderId) external onlyRelayerOrOwner {
         ClassOrder storage o = orders[orderId];
 
@@ -84,6 +94,7 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
         emit ClassCancelled(orderId, o.buyer, o.price);
     }
 
+    // Administratively settles an order, transferring tokens to the trainer
     function adminSettle(bytes32 orderId) external onlyRelayerOrOwner {
         ClassOrder storage o = orders[orderId];
         if (o.buyer == address(0)) revert OrderNotFound();
@@ -95,6 +106,7 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
         emit AdminSettled(orderId, o.trainer, o.price);
     }
 
+    // Administratively refunds an order, transferring tokens back to the buyer
     function adminRefund(bytes32 orderId) external onlyRelayerOrOwner {
         ClassOrder storage o = orders[orderId];
         if (o.buyer == address(0)) revert OrderNotFound();
@@ -106,10 +118,12 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable {
         emit AdminRefunded(orderId, o.buyer, o.price);
     }
 
+    // Retrieves the details of a specific order
     function getOrder(bytes32 orderId) external view returns (ClassOrder memory) {
         return orders[orderId];
     }
 
+    // Retrieves the details of multiple orders
     function getOrders(bytes32[] calldata orderIds) external view returns (ClassOrder[] memory) {
         ClassOrder[] memory result = new ClassOrder[](orderIds.length);
         for (uint256 i = 0; i < orderIds.length; i++) {

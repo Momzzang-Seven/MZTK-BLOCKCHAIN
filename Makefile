@@ -14,13 +14,7 @@ COMMON_ARGS := --rpc-url $(OPT_SEPOLIA_RPC_URL) \
 deploy-token:
 	@forge script script/MyERC20.s.sol:DeployMyERC20 $(COMMON_ARGS)
 
-deploy-wallet:
-	@forge script script/SimpleWallet.s.sol:DeploySimpleWallet $(COMMON_ARGS)
-
-deploy-voucher:
-	@forge script script/Voucher.s.sol:DeployVoucher $(COMMON_ARGS)
-
 deploy-7702:
 	@forge script script/EIP7702FullFlow.s.sol:DeployFullSystem $(COMMON_ARGS)
 
-deploy-all: deploy-token deploy-wallet
+deploy-all: deploy-token deploy-7702

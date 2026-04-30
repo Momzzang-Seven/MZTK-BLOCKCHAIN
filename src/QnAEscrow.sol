@@ -9,6 +9,7 @@ import {IQnAEscrow} from "./interfaces/IQnAEscrow.sol";
 contract QnAEscrow is IQnAEscrow, Ownable {
     using SafeERC20 for IERC20;
 
+    // State constants representing the lifecycle of a question
     uint16 public constant STATE_CREATED = 1000;
     uint16 public constant STATE_ANSWERED = 1100;
     uint16 public constant STATE_ACCEPTED = 2000;
@@ -17,12 +18,17 @@ contract QnAEscrow is IQnAEscrow, Ownable {
     uint16 public constant STATE_DELETED = 5000;
     uint16 public constant STATE_DELETED_WITH_ANSWERS = 5100;
 
+    // Mapping from question ID to Question details
     mapping(bytes32 => Question) public questions;
+    // Mapping from question ID and answer ID to Answer details
     mapping(bytes32 => mapping(bytes32 => Answer)) public answers;
 
+    // Mapping to track supported ERC20 tokens for payment
     mapping(address => bool) public isSupportedToken;
+    // Mapping to track authorized relayer addresses
     mapping(address => bool) public isRelayer;
 
+    // Modifier to restrict access to only relayer or owner
     modifier onlyRelayerOrOwner() {
         if (!isRelayer[msg.sender] && msg.sender != owner()) revert OnlyRelayerOrOwner();
         _;
@@ -30,18 +36,21 @@ contract QnAEscrow is IQnAEscrow, Ownable {
 
     constructor(address initialOwner) Ownable(initialOwner) {}
 
+    // Updates the support status of an ERC20 token
     function updateTokenSupport(address token, bool isSupported) external onlyOwner {
         if (token == address(0)) revert InvalidAddress();
         isSupportedToken[token] = isSupported;
         emit TokenSupportUpdated(token, isSupported);
     }
 
+    // Updates the authorization status of a relayer
     function updateRelayer(address relayer, bool isAuthorized) external onlyOwner {
         if (relayer == address(0)) revert InvalidAddress();
         isRelayer[relayer] = isAuthorized;
         emit RelayerUpdated(relayer, isAuthorized);
     }
 
+    // Creates a new question and locks the reward amount in the escrow
     function createQuestion(bytes32 questionId, address token, uint256 rewardAmount, bytes32 questionHash) external {
         if (token == address(0)) revert InvalidAddress();
         if (questionId == bytes32(0)) revert InvalidAddress();
@@ -66,6 +75,7 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit QuestionCreated(questionId, msg.sender, token, rewardAmount);
     }
 
+    // Updates the hash of an existing question
     function updateQuestion(bytes32 questionId, bytes32 newQuestionHash) external {
         Question storage q = questions[questionId];
 
@@ -79,6 +89,7 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit QuestionUpdated(questionId, msg.sender, newQuestionHash);
     }
 
+    // Submits a new answer to a specific question
     function submitAnswer(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external {
         Question storage q = questions[questionId];
 
@@ -99,6 +110,7 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit AnswerSubmitted(questionId, answerId, msg.sender, contentHash);
     }
 
+    // Updates the hash of an existing answer
     function updateAnswer(bytes32 questionId, bytes32 answerId, bytes32 newContentHash) external {
         Question storage q = questions[questionId];
 
@@ -114,6 +126,7 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit AnswerUpdated(questionId, answerId, msg.sender, newContentHash);
     }
 
+    // Deletes an answer submitted by the user
     function deleteAnswer(bytes32 questionId, bytes32 answerId) external {
         Question storage q = questions[questionId];
 
@@ -135,6 +148,7 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit AnswerDeleted(questionId, answerId, responder);
     }
 
+    // Accepts an answer and transfers the locked reward to the responder
     function acceptAnswer(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash) external {
         Question storage q = questions[questionId];
 
@@ -155,6 +169,7 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit AnswerAccepted(questionId, answerId, a.responder, q.rewardAmount, questionHash, contentHash);
     }
 
+    // Deletes a question and refunds the locked reward to the asker
     function deleteQuestion(bytes32 questionId) external {
         Question storage q = questions[questionId];
 
@@ -170,6 +185,7 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit QuestionDeleted(questionId);
     }
 
+    // Administratively settles a question by paying the reward to a responder
     function adminSettle(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash)
         external
         onlyRelayerOrOwner
@@ -191,6 +207,7 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit AdminSettled(questionId, answerId, a.responder, q.rewardAmount, questionHash, contentHash);
     }
 
+    // Administratively refunds a question by sending the reward back to the asker
     function adminRefund(bytes32 questionId) external onlyRelayerOrOwner {
         Question storage q = questions[questionId];
         if (q.asker == address(0)) revert QuestionNotFound();
@@ -207,10 +224,12 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         emit AdminRefunded(questionId, q.asker, q.rewardAmount);
     }
 
+    // Retrieves the details of a specific question
     function getQuestion(bytes32 questionId) external view returns (Question memory) {
         return questions[questionId];
     }
 
+    // Retrieves the details of multiple questions
     function getQuestions(bytes32[] calldata questionIds) external view returns (Question[] memory) {
         Question[] memory result = new Question[](questionIds.length);
         for (uint256 i = 0; i < questionIds.length; i++) {
@@ -219,10 +238,12 @@ contract QnAEscrow is IQnAEscrow, Ownable {
         return result;
     }
 
+    // Retrieves the details of a specific answer
     function getAnswer(bytes32 questionId, bytes32 answerId) external view returns (Answer memory) {
         return answers[questionId][answerId];
     }
 
+    // Retrieves the details of multiple answers for a specific question
     function getAnswers(bytes32 questionId, bytes32[] calldata answerIds) external view returns (Answer[] memory) {
         Answer[] memory result = new Answer[](answerIds.length);
         for (uint256 i = 0; i < answerIds.length; i++) {
