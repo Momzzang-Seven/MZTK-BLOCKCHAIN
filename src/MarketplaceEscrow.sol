@@ -36,7 +36,7 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
     // Default duration from purchase to escrow deadline: 30 days
     uint48 public defaultDeadlineDuration = 30 days;
 
-    // Window after signedAt within which a server signature remains valid (default: 10 minutes)
+    // Window after signedAt within which a server signature remains valid (default: 15 minutes)
     // The contract enforces this; the server only needs to include signedAt in the signature
     uint48 public sigValidityDuration = 15 minutes;
 
@@ -120,9 +120,8 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
         uint256 signedAt,
         bytes calldata signature
     ) external {
-        if (token == address(0) || trainer == address(0) || orderId == bytes32(0)) {
-            revert InvalidAddress();
-        }
+        if (token == address(0) || trainer == address(0)) revert InvalidAddress();
+        if (orderId == bytes32(0)) revert InvalidId();
         if (!isSupportedToken[token]) revert UnsupportedToken();
         if (price == 0) revert InvalidPrice();
         if (msg.sender == trainer) revert CannotBuyOwnClass();

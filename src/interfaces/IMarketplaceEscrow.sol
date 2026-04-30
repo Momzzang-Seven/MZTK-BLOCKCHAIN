@@ -35,6 +35,7 @@ interface IMarketplaceEscrow {
     error UnsupportedToken();
     error OrderAlreadyExists();
     error OrderNotFound();
+    error InvalidId(); // non-address zero identifier (e.g. orderId)
     error AlreadySettled();
     error OnlyBuyer();
     error OnlyBuyerOrTrainer();
