@@ -9,6 +9,7 @@ interface IQnAEscrow {
         bytes32 questionHash;
         address token;
         address asker;
+        uint48 deadline; // Unix timestamp after which the asker may self-refund
         uint32 answerCount;
         uint16 state;
     }
@@ -46,24 +47,32 @@ interface IQnAEscrow {
     );
     event AdminRefunded(bytes32 indexed questionId, address indexed asker, uint256 rewardAmount);
     event AnswerDeleted(bytes32 indexed questionId, bytes32 indexed answerId, address indexed responder);
-
     event QuestionUpdated(bytes32 indexed questionId, address indexed asker, bytes32 newQuestionHash);
     event AnswerUpdated(
         bytes32 indexed questionId, bytes32 indexed answerId, address indexed responder, bytes32 newContentHash
     );
-
+    // Emitted when the asker self-refunds after the deadline has passed
+    event DeadlineRefunded(bytes32 indexed questionId, address indexed asker, uint256 rewardAmount);
     event TokenSupportUpdated(address indexed token, bool isSupported);
     event RelayerUpdated(address indexed relayer, bool isAuthorized);
+    event DefaultDeadlineDurationUpdated(uint48 newDuration);
+    // Emitted when the server signature validity window is updated
+    event SigValidityDurationUpdated(uint48 newDuration);
+    // Emitted when the trusted server signer address is updated
+    event SignerUpdated(address indexed newSigner);
 
     error InvalidAddress();
+    error InvalidId(); // non-address zero identifier (e.g. answerId, questionId)
     error InvalidContentHash();
     error InvalidRewardAmount();
+    error InvalidDeadline();
     error UnsupportedToken();
     error QuestionAlreadyExists();
     error AnswerAlreadyExists();
     error QuestionNotFound();
     error QuestionAlreadyResolved();
     error OnlyAskerCanAccept();
+    error OnlyAsker(); // used by updateQuestion and deleteQuestion
     error OnlyRelayerOrOwner();
     error AnswerNotFound();
     error CannotAnswerOwnQuestion();
@@ -72,10 +81,25 @@ interface IQnAEscrow {
     error OnlyResponderCanDelete();
     error OnlyResponderCanUpdate();
     error HashMismatch();
+    error DeadlineNotExpired();
+    error DeadlineExpired();
+    error InvalidSignature();
+    error SignatureExpired();
 
     function updateTokenSupport(address token, bool isSupported) external;
     function updateRelayer(address relayer, bool isAuthorized) external;
-    function createQuestion(bytes32 questionId, address token, uint256 rewardAmount, bytes32 questionHash) external;
+    function updateDefaultDeadlineDuration(uint48 newDuration) external;
+    function updateSigValidityDuration(uint48 newDuration) external;
+    function setSigner(address newSigner) external;
+    // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
+    function createQuestion(
+        bytes32 questionId,
+        address token,
+        uint256 rewardAmount,
+        bytes32 questionHash,
+        uint256 signedAt,
+        bytes calldata signature
+    ) external;
     function submitAnswer(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external;
     function updateQuestion(bytes32 questionId, bytes32 newQuestionHash) external;
     function updateAnswer(bytes32 questionId, bytes32 answerId, bytes32 newContentHash) external;
@@ -83,9 +107,12 @@ interface IQnAEscrow {
     function deleteQuestion(bytes32 questionId) external;
     function adminSettle(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash) external;
     function adminRefund(bytes32 questionId) external;
+    // Permissionless refund callable by anyone once the question deadline has passed
+    function claimExpiredRefund(bytes32 questionId) external;
     function getQuestion(bytes32 questionId) external view returns (Question memory);
     function getQuestions(bytes32[] calldata questionIds) external view returns (Question[] memory);
     function deleteAnswer(bytes32 questionId, bytes32 answerId) external;
     function getAnswer(bytes32 questionId, bytes32 answerId) external view returns (Answer memory);
     function getAnswers(bytes32 questionId, bytes32[] calldata answerIds) external view returns (Answer[] memory);
+    function nonces(address creator) external view returns (uint256);
 }

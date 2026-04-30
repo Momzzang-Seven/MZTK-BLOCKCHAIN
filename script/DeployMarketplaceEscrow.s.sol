@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.33;
 
-import {Script} from "forge-std/Script.sol";
+import {Script, console} from "forge-std/Script.sol";
 import {MarketplaceEscrow} from "../src/MarketplaceEscrow.sol";
 
 contract DeployMarketplaceEscrow is Script {
     function run() external {
-        address initialOwner = msg.sender;
+        // Load the server signer address from environment
+        address initialSigner = vm.envAddress("SIGNER_ADDRESS");
 
-        vm.startBroadcast();
-        new MarketplaceEscrow(initialOwner);
+        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+        MarketplaceEscrow escrow = new MarketplaceEscrow(msg.sender, initialSigner);
+        console.log("MarketplaceEscrow deployed at:", address(escrow));
+        console.log("  owner  :", msg.sender);
+        console.log("  signer :", initialSigner);
         vm.stopBroadcast();
     }
 }

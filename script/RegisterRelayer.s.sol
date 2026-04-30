@@ -9,7 +9,7 @@ contract RegisterRelayer is Script {
     function run() external {
         // Load deployed contract addresses from environment
         address marketplaceEscrow = vm.envAddress("MARKETPLACE_ESCROW_ADDRESS");
-        address qnaEscrow         = vm.envAddress("QNA_ESCROW_ADDRESS");
+        address qnaEscrow = vm.envAddress("QNA_ESCROW_ADDRESS");
 
         // Load relayer address to register (defaults to deployer if not set)
         address relayerAddress = vm.envOr("RELAYER_ADDRESS", vm.addr(vm.envUint("PRIVATE_KEY")));

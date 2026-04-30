@@ -9,7 +9,7 @@ contract RegisterMZTToken is Script {
     function run() external {
         // Load deployed contract addresses from environment
         address marketplaceEscrow = vm.envAddress("MARKETPLACE_ESCROW_ADDRESS");
-        address qnaEscrow         = vm.envAddress("QNA_ESCROW_ADDRESS");
+        address qnaEscrow = vm.envAddress("QNA_ESCROW_ADDRESS");
 
         // Load MZT ERC20 token address from environment
         address mztToken = vm.envAddress("MZT_TOKEN_ADDRESS");

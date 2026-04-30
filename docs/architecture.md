@@ -5,7 +5,7 @@
 ```
 ┌─────────────┐        RPC calls       ┌──────────────────┐
 │  MZTK-FE    │ ─────────────────────► │  Optimism Sepolia │
-│  (Next.js)  │                        │                   │
+│  (React.js)  │                       │                   │
 └─────────────┘                        │  MarketplaceEscrow│
                                        │  QnAEscrow        │
 ┌─────────────┐   relayer tx (signed)  │  EIP7702Proxy     │
