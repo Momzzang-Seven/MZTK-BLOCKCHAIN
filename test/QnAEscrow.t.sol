@@ -37,6 +37,15 @@ contract QnAEscrowTest is Test {
     bytes32 private constant _TYPEHASH = keccak256(
         "CreateQuestion(address creator,bytes32 questionId,address token,uint256 rewardAmount,bytes32 questionHash,uint256 signedAt)"
     );
+    bytes32 private constant _UPDATE_Q_TYPEHASH = keccak256(
+        "UpdateQuestion(address asker,bytes32 questionId,bytes32 newQuestionHash,uint256 signedAt)"
+    );
+    bytes32 private constant _SUBMIT_A_TYPEHASH = keccak256(
+        "SubmitAnswer(address responder,bytes32 questionId,bytes32 answerId,bytes32 contentHash,uint256 signedAt)"
+    );
+    bytes32 private constant _UPDATE_A_TYPEHASH = keccak256(
+        "UpdateAnswer(address responder,bytes32 questionId,bytes32 answerId,bytes32 newContentHash,uint256 signedAt)"
+    );
     BatchImplementation public batchImpl;
 
     function setUp() public {
@@ -78,6 +87,47 @@ contract QnAEscrowTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
+    function _signUpdateQ(uint256 pk, address askerAddr, bytes32 qId, bytes32 newQh, uint256 sat)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 h = keccak256(abi.encode(_UPDATE_Q_TYPEHASH, askerAddr, qId, newQh, sat));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signSubmitA(uint256 pk, address responderAddr, bytes32 qId, bytes32 aId, bytes32 cHash, uint256 sat)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 h = keccak256(abi.encode(_SUBMIT_A_TYPEHASH, responderAddr, qId, aId, cHash, sat));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signUpdateA(uint256 pk, address responderAddr, bytes32 qId, bytes32 aId, bytes32 newCh, uint256 sat)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 h = keccak256(abi.encode(_UPDATE_A_TYPEHASH, responderAddr, qId, aId, newCh, sat));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    // Helpers that submit a valid server-signed answer on behalf of a given responder
+    function _submit(bytes32 qId, bytes32 aId, bytes32 cHash, address responderAddr) internal {
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signSubmitA(signerPk, responderAddr, qId, aId, cHash, sat);
+        vm.prank(responderAddr);
+        escrow.submitAnswer(qId, aId, cHash, sat, sig);
+    }
+
     function _execBatch(BatchImplementation.Call[] memory calls) internal {
         bytes32 dom = keccak256(
             abi.encode(
@@ -89,7 +139,7 @@ contract QnAEscrowTest is Test {
             )
         );
         bytes32 ct = keccak256("Call(address to,uint256 value,bytes data)");
-        bytes32 bt = keccak256("Batch(uint256Call[] calls)Call(address to,uint256 value,bytes data)");
+        bytes32 bt = keccak256("Batch(uint256 nonce,Call[] calls)Call(address to,uint256 value,bytes data)");
         bytes32[] memory ch = new bytes32[](calls.length);
         for (uint256 i = 0; i < calls.length; i++) {
             ch[i] = keccak256(abi.encode(ct, calls[i].to, calls[i].value, keccak256(calls[i].data)));
@@ -194,24 +244,24 @@ contract QnAEscrowTest is Test {
     function test_SubmitAnswer() public {
         bytes32 qId = _ask();
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId, aId, aHash);
+        _submit(qId, aId, aHash, responder);
         assertEq(escrow.getQuestion(qId).state, escrow.STATE_ANSWERED());
     }
 
     function test_Fail_SelfAnswer() public {
         bytes32 qId = _ask();
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signSubmitA(signerPk, asker, qId, aId, aHash, sat);
         vm.prank(asker);
         vm.expectRevert(IQnAEscrow.CannotAnswerOwnQuestion.selector);
-        escrow.submitAnswer(qId, aId, aHash);
+        escrow.submitAnswer(qId, aId, aHash, sat, sig);
     }
 
     function test_AcceptAnswer() public {
         bytes32 qId = _ask();
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId, aId, aHash);
+        _submit(qId, aId, aHash, responder);
         uint256 bal = token.balanceOf(responder);
         vm.prank(asker);
         escrow.acceptAnswer(qId, aId, qHash, aHash);
@@ -222,8 +272,7 @@ contract QnAEscrowTest is Test {
     function test_Fail_AcceptByNonAsker() public {
         bytes32 qId = _ask();
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId, aId, aHash);
+        _submit(qId, aId, aHash, responder);
         vm.prank(stranger);
         vm.expectRevert(IQnAEscrow.OnlyAskerCanAccept.selector);
         escrow.acceptAnswer(qId, aId, qHash, aHash);
@@ -232,8 +281,7 @@ contract QnAEscrowTest is Test {
     function test_DeleteAnswer_LastAnswer_ResetState() public {
         bytes32 qId = _ask();
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId, aId, aHash);
+        _submit(qId, aId, aHash, responder);
         assertEq(escrow.getQuestion(qId).state, escrow.STATE_ANSWERED());
         vm.prank(responder);
         escrow.deleteAnswer(qId, aId);
@@ -251,8 +299,7 @@ contract QnAEscrowTest is Test {
     function test_Fail_DeleteWithAnswers() public {
         bytes32 qId = _ask();
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId, aId, aHash);
+        _submit(qId, aId, aHash, responder);
         // State is now STATE_ANSWERED; deleteQuestion checks STATE_CREATED only
         // so it reverts with QuestionAlreadyResolved before reaching CannotDeleteWithAnswers
         vm.prank(asker);
@@ -268,8 +315,7 @@ contract QnAEscrowTest is Test {
         bytes32 qId1 = _ask();
         bytes32 qId2 = _ask();
         bytes32 aId = keccak256(abi.encodePacked("a", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId1, aId, aHash);
+        _submit(qId1, aId, aHash, responder);
         vm.prank(relayer);
         escrow.adminSettle(qId1, aId, qHash, aHash);
         vm.prank(relayer);
@@ -292,8 +338,7 @@ contract QnAEscrowTest is Test {
     function test_ClaimExpiredRefund_WithAnswers() public {
         bytes32 qId = _ask();
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId, aId, aHash);
+        _submit(qId, aId, aHash, responder);
         vm.warp(block.timestamp + 31 days);
         uint256 bal = token.balanceOf(asker);
         // answers exist: only asker can forfeit (MEV guard)
@@ -317,8 +362,7 @@ contract QnAEscrowTest is Test {
         // Has answers: third party must NOT be able to frontrun asker's acceptAnswer
         bytes32 qId = _ask();
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId, aId, aHash);
+        _submit(qId, aId, aHash, responder);
         vm.warp(block.timestamp + 31 days);
         vm.prank(stranger);
         vm.expectRevert(IQnAEscrow.OnlyAsker.selector);
@@ -329,8 +373,7 @@ contract QnAEscrowTest is Test {
         // Has answers: asker can consciously choose to forfeit
         bytes32 qId = _ask();
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId, aId, aHash);
+        _submit(qId, aId, aHash, responder);
         vm.warp(block.timestamp + 31 days);
         uint256 bal = token.balanceOf(asker);
         vm.prank(asker);
@@ -348,8 +391,7 @@ contract QnAEscrowTest is Test {
     function test_Fail_AdminSettleAfterDeadline() public {
         bytes32 qId = _ask();
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId, aId, aHash);
+        _submit(qId, aId, aHash, responder);
         vm.warp(block.timestamp + 31 days);
         vm.prank(owner);
         vm.expectRevert(IQnAEscrow.DeadlineExpired.selector);
@@ -362,10 +404,9 @@ contract QnAEscrowTest is Test {
         bytes32 qId = _ask();
         bytes32 aId1 = keccak256(abi.encodePacked("answer", aN++));
         bytes32 aId2 = keccak256(abi.encodePacked("answer", aN++));
-        vm.prank(responder);
-        escrow.submitAnswer(qId, aId1, aHash);
-        vm.prank(stranger);
-        escrow.submitAnswer(qId, aId2, keccak256("Another"));
+        bytes32 otherHash = keccak256("Another");
+        _submit(qId, aId1, aHash, responder);
+        _submit(qId, aId2, otherHash, stranger);
         bytes32[] memory ids = new bytes32[](2);
         ids[0] = aId1;
         ids[1] = aId2;
@@ -406,5 +447,218 @@ contract QnAEscrowTest is Test {
         IQnAEscrow.Question[] memory qs = escrow.getQuestions(ids);
         assertEq(qs[0].questionId, qId1);
         assertEq(qs[1].questionId, qId2);
+    }
+
+    // ─── updateQuestion: server signature ───
+
+    function test_UpdateQuestion_Ok() public {
+        bytes32 qId = _ask();
+        bytes32 newQh = keccak256("revised question");
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signUpdateQ(signerPk, asker, qId, newQh, sat);
+        vm.prank(asker);
+        escrow.updateQuestion(qId, newQh, sat, sig);
+        assertEq(escrow.getQuestion(qId).questionHash, newQh);
+    }
+
+    function test_Fail_UpdateQuestion_ExpiredSig() public {
+        bytes32 qId = _ask();
+        bytes32 newQh = keccak256("revised question");
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signUpdateQ(signerPk, asker, qId, newQh, sat);
+        vm.warp(block.timestamp + 16 minutes);
+        vm.prank(asker);
+        vm.expectRevert(IQnAEscrow.SignatureExpired.selector);
+        escrow.updateQuestion(qId, newQh, sat, sig);
+    }
+
+    function test_Fail_UpdateQuestion_FutureSignedAt() public {
+        bytes32 qId = _ask();
+        bytes32 newQh = keccak256("revised question");
+        uint256 sat = block.timestamp + 1 days;
+        bytes memory sig = _signUpdateQ(signerPk, asker, qId, newQh, sat);
+        vm.prank(asker);
+        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        escrow.updateQuestion(qId, newQh, sat, sig);
+    }
+
+    function test_Fail_UpdateQuestion_WrongSigner() public {
+        bytes32 qId = _ask();
+        bytes32 newQh = keccak256("revised question");
+        uint256 sat = block.timestamp;
+        bytes memory bad = _signUpdateQ(0xBAD, asker, qId, newQh, sat);
+        vm.prank(asker);
+        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        escrow.updateQuestion(qId, newQh, sat, bad);
+    }
+
+    function test_Fail_UpdateQuestion_SenderBindingBypass() public {
+        // OnlyAsker ACL fires before sig check, so stranger can't even reach the signature
+        // verification with a sig bound to the real asker — the role gate catches it first.
+        bytes32 qId = _ask();
+        bytes32 newQh = keccak256("revised question");
+        uint256 sat = block.timestamp;
+        bytes memory sigForAsker = _signUpdateQ(signerPk, asker, qId, newQh, sat);
+        vm.prank(stranger);
+        vm.expectRevert(IQnAEscrow.OnlyAsker.selector);
+        escrow.updateQuestion(qId, newQh, sat, sigForAsker);
+    }
+
+    function test_Fail_UpdateQuestion_WrongTypehashField() public {
+        // Sign for newQh1 but call with newQh2 → digest mismatch → InvalidSignature
+        bytes32 qId = _ask();
+        bytes32 newQh1 = keccak256("revised one");
+        bytes32 newQh2 = keccak256("revised two");
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signUpdateQ(signerPk, asker, qId, newQh1, sat);
+        vm.prank(asker);
+        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        escrow.updateQuestion(qId, newQh2, sat, sig);
+    }
+
+    // ─── submitAnswer: server signature ───
+
+    function test_SubmitAnswer_Ok() public {
+        bytes32 qId = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        _submit(qId, aId, aHash, responder);
+        assertEq(escrow.getAnswer(qId, aId).responder, responder);
+        assertEq(escrow.getAnswer(qId, aId).contentHash, aHash);
+    }
+
+    function test_Fail_SubmitAnswer_ExpiredSig() public {
+        bytes32 qId = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signSubmitA(signerPk, responder, qId, aId, aHash, sat);
+        vm.warp(block.timestamp + 16 minutes);
+        vm.prank(responder);
+        vm.expectRevert(IQnAEscrow.SignatureExpired.selector);
+        escrow.submitAnswer(qId, aId, aHash, sat, sig);
+    }
+
+    function test_Fail_SubmitAnswer_FutureSignedAt() public {
+        bytes32 qId = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        uint256 sat = block.timestamp + 1 days;
+        bytes memory sig = _signSubmitA(signerPk, responder, qId, aId, aHash, sat);
+        vm.prank(responder);
+        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        escrow.submitAnswer(qId, aId, aHash, sat, sig);
+    }
+
+    function test_Fail_SubmitAnswer_WrongSigner() public {
+        bytes32 qId = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        uint256 sat = block.timestamp;
+        bytes memory bad = _signSubmitA(0xBAD, responder, qId, aId, aHash, sat);
+        vm.prank(responder);
+        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        escrow.submitAnswer(qId, aId, aHash, sat, bad);
+    }
+
+    function test_Fail_SubmitAnswer_SenderBindingBypass() public {
+        // Server signs for `responder`, attacker (stranger) calls — msg.sender goes into the
+        // structHash, so recover != signer → InvalidSignature. This proves the signature
+        // is bound to the caller's address.
+        bytes32 qId = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        uint256 sat = block.timestamp;
+        bytes memory sigForResponder = _signSubmitA(signerPk, responder, qId, aId, aHash, sat);
+        vm.prank(stranger);
+        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        escrow.submitAnswer(qId, aId, aHash, sat, sigForResponder);
+    }
+
+    function test_Fail_SubmitAnswer_WrongQuestionId() public {
+        // Signed for qId1 but called against qId2 → digest mismatch → InvalidSignature
+        bytes32 qId1 = _ask();
+        bytes32 qId2 = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signSubmitA(signerPk, responder, qId1, aId, aHash, sat);
+        vm.prank(responder);
+        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        escrow.submitAnswer(qId2, aId, aHash, sat, sig);
+    }
+
+    // ─── updateAnswer: server signature ───
+
+    function test_UpdateAnswer_Ok() public {
+        bytes32 qId = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        _submit(qId, aId, aHash, responder);
+        bytes32 newCh = keccak256("revised answer");
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signUpdateA(signerPk, responder, qId, aId, newCh, sat);
+        vm.prank(responder);
+        escrow.updateAnswer(qId, aId, newCh, sat, sig);
+        assertEq(escrow.getAnswer(qId, aId).contentHash, newCh);
+    }
+
+    function test_Fail_UpdateAnswer_ExpiredSig() public {
+        bytes32 qId = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        _submit(qId, aId, aHash, responder);
+        bytes32 newCh = keccak256("revised answer");
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signUpdateA(signerPk, responder, qId, aId, newCh, sat);
+        vm.warp(block.timestamp + 16 minutes);
+        vm.prank(responder);
+        vm.expectRevert(IQnAEscrow.SignatureExpired.selector);
+        escrow.updateAnswer(qId, aId, newCh, sat, sig);
+    }
+
+    function test_Fail_UpdateAnswer_FutureSignedAt() public {
+        bytes32 qId = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        _submit(qId, aId, aHash, responder);
+        bytes32 newCh = keccak256("revised answer");
+        uint256 sat = block.timestamp + 1 days;
+        bytes memory sig = _signUpdateA(signerPk, responder, qId, aId, newCh, sat);
+        vm.prank(responder);
+        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        escrow.updateAnswer(qId, aId, newCh, sat, sig);
+    }
+
+    function test_Fail_UpdateAnswer_WrongSigner() public {
+        bytes32 qId = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        _submit(qId, aId, aHash, responder);
+        bytes32 newCh = keccak256("revised answer");
+        uint256 sat = block.timestamp;
+        bytes memory bad = _signUpdateA(0xBAD, responder, qId, aId, newCh, sat);
+        vm.prank(responder);
+        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        escrow.updateAnswer(qId, aId, newCh, sat, bad);
+    }
+
+    function test_Fail_UpdateAnswer_SenderBindingBypass() public {
+        // OnlyResponderCanUpdate ACL fires before sig check, so the role gate catches a
+        // stranger replaying responder's sig before the signature verification runs.
+        bytes32 qId = _ask();
+        bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
+        _submit(qId, aId, aHash, responder);
+        bytes32 newCh = keccak256("revised answer");
+        uint256 sat = block.timestamp;
+        bytes memory sigForResponder = _signUpdateA(signerPk, responder, qId, aId, newCh, sat);
+        vm.prank(stranger);
+        vm.expectRevert(IQnAEscrow.OnlyResponderCanUpdate.selector);
+        escrow.updateAnswer(qId, aId, newCh, sat, sigForResponder);
+    }
+
+    function test_Fail_UpdateAnswer_WrongAnswerIdInSig() public {
+        // Sign for aId1 but call for aId2 (both belong to responder) → digest mismatch
+        bytes32 qId = _ask();
+        bytes32 aId1 = keccak256(abi.encodePacked("answer", aN++));
+        bytes32 aId2 = keccak256(abi.encodePacked("answer", aN++));
+        _submit(qId, aId1, aHash, responder);
+        _submit(qId, aId2, keccak256("second"), responder);
+        bytes32 newCh = keccak256("revised answer");
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signUpdateA(signerPk, responder, qId, aId1, newCh, sat);
+        vm.prank(responder);
+        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        escrow.updateAnswer(qId, aId2, newCh, sat, sig);
     }
 }

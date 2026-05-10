@@ -15,6 +15,18 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
     bytes32 private constant _CREATE_QUESTION_TYPEHASH = keccak256(
         "CreateQuestion(address creator,bytes32 questionId,address token,uint256 rewardAmount,bytes32 questionHash,uint256 signedAt)"
     );
+    // EIP-712 typehash for server-signed question hash update authorization
+    bytes32 private constant _UPDATE_QUESTION_TYPEHASH = keccak256(
+        "UpdateQuestion(address asker,bytes32 questionId,bytes32 newQuestionHash,uint256 signedAt)"
+    );
+    // EIP-712 typehash for server-signed answer submission authorization
+    bytes32 private constant _SUBMIT_ANSWER_TYPEHASH = keccak256(
+        "SubmitAnswer(address responder,bytes32 questionId,bytes32 answerId,bytes32 contentHash,uint256 signedAt)"
+    );
+    // EIP-712 typehash for server-signed answer hash update authorization
+    bytes32 private constant _UPDATE_ANSWER_TYPEHASH = keccak256(
+        "UpdateAnswer(address responder,bytes32 questionId,bytes32 answerId,bytes32 newContentHash,uint256 signedAt)"
+    );
 
     // State constants representing the lifecycle of a question
     uint16 public constant STATE_CREATED = 1000;
@@ -123,9 +135,6 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         if (questionHash == bytes32(0)) revert InvalidContentHash();
 
         // Verify the server-issued EIP-712 authorization
-        // signedAt must be in the past, and within the allowed validity window
-        if (signedAt > block.timestamp) revert InvalidSignature();
-        if (block.timestamp > signedAt + sigValidityDuration) revert SignatureExpired();
         bytes32 structHash = keccak256(
             abi.encode(
                 _CREATE_QUESTION_TYPEHASH,
@@ -137,7 +146,7 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
                 signedAt
             )
         );
-        if (ECDSA.recover(_hashTypedDataV4(structHash), signature) != signer) revert InvalidSignature();
+        _verifyServerSig(structHash, signedAt, signature);
 
         uint48 deadline = uint48(block.timestamp) + defaultDeadlineDuration;
 
@@ -158,8 +167,14 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         emit QuestionCreated(questionId, msg.sender, token, rewardAmount);
     }
 
-    // Updates the hash of an existing question
-    function updateQuestion(bytes32 questionId, bytes32 newQuestionHash) external {
+    // Updates the hash of an existing question.
+    // Requires a valid EIP-712 signature from the server authorizing this update.
+    function updateQuestion(
+        bytes32 questionId,
+        bytes32 newQuestionHash,
+        uint256 signedAt,
+        bytes calldata signature
+    ) external {
         Question storage q = questions[questionId];
 
         if (q.asker == address(0)) revert QuestionNotFound();
@@ -169,12 +184,24 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         if (msg.sender != q.asker) revert OnlyAsker();
         if (newQuestionHash == bytes32(0)) revert InvalidContentHash();
 
+        bytes32 structHash = keccak256(
+            abi.encode(_UPDATE_QUESTION_TYPEHASH, msg.sender, questionId, newQuestionHash, signedAt)
+        );
+        _verifyServerSig(structHash, signedAt, signature);
+
         q.questionHash = newQuestionHash;
         emit QuestionUpdated(questionId, msg.sender, newQuestionHash);
     }
 
-    // Submits a new answer to a specific question
-    function submitAnswer(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external {
+    // Submits a new answer to a specific question.
+    // Requires a valid EIP-712 signature from the server authorizing this content hash.
+    function submitAnswer(
+        bytes32 questionId,
+        bytes32 answerId,
+        bytes32 contentHash,
+        uint256 signedAt,
+        bytes calldata signature
+    ) external {
         Question storage q = questions[questionId];
 
         if (q.asker == address(0)) revert QuestionNotFound();
@@ -187,6 +214,11 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         if (msg.sender == q.asker) revert CannotAnswerOwnQuestion();
         if (answers[questionId][answerId].responder != address(0)) revert AnswerAlreadyExists();
 
+        bytes32 structHash = keccak256(
+            abi.encode(_SUBMIT_ANSWER_TYPEHASH, msg.sender, questionId, answerId, contentHash, signedAt)
+        );
+        _verifyServerSig(structHash, signedAt, signature);
+
         if (q.state == STATE_CREATED) {
             q.state = STATE_ANSWERED;
         }
@@ -197,8 +229,15 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         emit AnswerSubmitted(questionId, answerId, msg.sender, contentHash);
     }
 
-    // Updates the hash of an existing answer
-    function updateAnswer(bytes32 questionId, bytes32 answerId, bytes32 newContentHash) external {
+    // Updates the hash of an existing answer.
+    // Requires a valid EIP-712 signature from the server authorizing this update.
+    function updateAnswer(
+        bytes32 questionId,
+        bytes32 answerId,
+        bytes32 newContentHash,
+        uint256 signedAt,
+        bytes calldata signature
+    ) external {
         Question storage q = questions[questionId];
 
         if (q.asker == address(0)) revert QuestionNotFound();
@@ -211,8 +250,21 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         if (msg.sender != a.responder) revert OnlyResponderCanUpdate();
         if (newContentHash == bytes32(0)) revert InvalidContentHash();
 
+        bytes32 structHash = keccak256(
+            abi.encode(_UPDATE_ANSWER_TYPEHASH, msg.sender, questionId, answerId, newContentHash, signedAt)
+        );
+        _verifyServerSig(structHash, signedAt, signature);
+
         a.contentHash = newContentHash;
         emit AnswerUpdated(questionId, answerId, msg.sender, newContentHash);
+    }
+
+    // Verifies a server-issued EIP-712 signature: signedAt must not be future-dated,
+    // must fall within the validity window, and must be signed by the trusted signer.
+    function _verifyServerSig(bytes32 structHash, uint256 signedAt, bytes calldata signature) private view {
+        if (signedAt > block.timestamp) revert InvalidSignature();
+        if (block.timestamp > signedAt + sigValidityDuration) revert SignatureExpired();
+        if (ECDSA.recover(_hashTypedDataV4(structHash), signature) != signer) revert InvalidSignature();
     }
 
     // Deletes an answer submitted by the user

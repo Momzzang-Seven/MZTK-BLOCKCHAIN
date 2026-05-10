@@ -100,9 +100,29 @@ interface IQnAEscrow {
         uint256 signedAt,
         bytes calldata signature
     ) external;
-    function submitAnswer(bytes32 questionId, bytes32 answerId, bytes32 contentHash) external;
-    function updateQuestion(bytes32 questionId, bytes32 newQuestionHash) external;
-    function updateAnswer(bytes32 questionId, bytes32 answerId, bytes32 newContentHash) external;
+    // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
+    function submitAnswer(
+        bytes32 questionId,
+        bytes32 answerId,
+        bytes32 contentHash,
+        uint256 signedAt,
+        bytes calldata signature
+    ) external;
+    // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
+    function updateQuestion(
+        bytes32 questionId,
+        bytes32 newQuestionHash,
+        uint256 signedAt,
+        bytes calldata signature
+    ) external;
+    // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
+    function updateAnswer(
+        bytes32 questionId,
+        bytes32 answerId,
+        bytes32 newContentHash,
+        uint256 signedAt,
+        bytes calldata signature
+    ) external;
     function acceptAnswer(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash) external;
     function deleteQuestion(bytes32 questionId) external;
     function adminSettle(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash) external;
