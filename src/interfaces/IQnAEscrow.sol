@@ -109,12 +109,8 @@ interface IQnAEscrow {
         bytes calldata signature
     ) external;
     // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
-    function updateQuestion(
-        bytes32 questionId,
-        bytes32 newQuestionHash,
-        uint256 signedAt,
-        bytes calldata signature
-    ) external;
+    function updateQuestion(bytes32 questionId, bytes32 newQuestionHash, uint256 signedAt, bytes calldata signature)
+        external;
     // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
     function updateAnswer(
         bytes32 questionId,

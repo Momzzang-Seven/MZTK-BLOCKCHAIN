@@ -16,9 +16,8 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         "CreateQuestion(address creator,bytes32 questionId,address token,uint256 rewardAmount,bytes32 questionHash,uint256 signedAt)"
     );
     // EIP-712 typehash for server-signed question hash update authorization
-    bytes32 private constant _UPDATE_QUESTION_TYPEHASH = keccak256(
-        "UpdateQuestion(address asker,bytes32 questionId,bytes32 newQuestionHash,uint256 signedAt)"
-    );
+    bytes32 private constant _UPDATE_QUESTION_TYPEHASH =
+        keccak256("UpdateQuestion(address asker,bytes32 questionId,bytes32 newQuestionHash,uint256 signedAt)");
     // EIP-712 typehash for server-signed answer submission authorization
     bytes32 private constant _SUBMIT_ANSWER_TYPEHASH = keccak256(
         "SubmitAnswer(address responder,bytes32 questionId,bytes32 answerId,bytes32 contentHash,uint256 signedAt)"
@@ -136,15 +135,7 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
 
         // Verify the server-issued EIP-712 authorization
         bytes32 structHash = keccak256(
-            abi.encode(
-                _CREATE_QUESTION_TYPEHASH,
-                msg.sender,
-                questionId,
-                token,
-                rewardAmount,
-                questionHash,
-                signedAt
-            )
+            abi.encode(_CREATE_QUESTION_TYPEHASH, msg.sender, questionId, token, rewardAmount, questionHash, signedAt)
         );
         _verifyServerSig(structHash, signedAt, signature);
 
@@ -169,12 +160,9 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
 
     // Updates the hash of an existing question.
     // Requires a valid EIP-712 signature from the server authorizing this update.
-    function updateQuestion(
-        bytes32 questionId,
-        bytes32 newQuestionHash,
-        uint256 signedAt,
-        bytes calldata signature
-    ) external {
+    function updateQuestion(bytes32 questionId, bytes32 newQuestionHash, uint256 signedAt, bytes calldata signature)
+        external
+    {
         Question storage q = questions[questionId];
 
         if (q.asker == address(0)) revert QuestionNotFound();
@@ -184,9 +172,8 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         if (msg.sender != q.asker) revert OnlyAsker();
         if (newQuestionHash == bytes32(0)) revert InvalidContentHash();
 
-        bytes32 structHash = keccak256(
-            abi.encode(_UPDATE_QUESTION_TYPEHASH, msg.sender, questionId, newQuestionHash, signedAt)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(_UPDATE_QUESTION_TYPEHASH, msg.sender, questionId, newQuestionHash, signedAt));
         _verifyServerSig(structHash, signedAt, signature);
 
         q.questionHash = newQuestionHash;
@@ -214,9 +201,8 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         if (msg.sender == q.asker) revert CannotAnswerOwnQuestion();
         if (answers[questionId][answerId].responder != address(0)) revert AnswerAlreadyExists();
 
-        bytes32 structHash = keccak256(
-            abi.encode(_SUBMIT_ANSWER_TYPEHASH, msg.sender, questionId, answerId, contentHash, signedAt)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(_SUBMIT_ANSWER_TYPEHASH, msg.sender, questionId, answerId, contentHash, signedAt));
         _verifyServerSig(structHash, signedAt, signature);
 
         if (q.state == STATE_CREATED) {
@@ -250,9 +236,8 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         if (msg.sender != a.responder) revert OnlyResponderCanUpdate();
         if (newContentHash == bytes32(0)) revert InvalidContentHash();
 
-        bytes32 structHash = keccak256(
-            abi.encode(_UPDATE_ANSWER_TYPEHASH, msg.sender, questionId, answerId, newContentHash, signedAt)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(_UPDATE_ANSWER_TYPEHASH, msg.sender, questionId, answerId, newContentHash, signedAt));
         _verifyServerSig(structHash, signedAt, signature);
 
         a.contentHash = newContentHash;

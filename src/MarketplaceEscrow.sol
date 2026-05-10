@@ -128,11 +128,8 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
         // signedAt must be in the past, and within the allowed validity window
         if (signedAt > block.timestamp) revert InvalidSignature();
         if (block.timestamp > signedAt + sigValidityDuration) revert SignatureExpired();
-        bytes32 structHash = keccak256(
-            abi.encode(
-                _PURCHASE_CLASS_TYPEHASH, msg.sender, orderId, token, trainer, price, signedAt
-            )
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(_PURCHASE_CLASS_TYPEHASH, msg.sender, orderId, token, trainer, price, signedAt));
         if (ECDSA.recover(_hashTypedDataV4(structHash), signature) != signer) revert InvalidSignature();
 
         uint48 deadline = uint48(block.timestamp) + defaultDeadlineDuration;

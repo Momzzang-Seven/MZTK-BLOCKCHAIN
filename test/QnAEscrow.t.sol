@@ -37,9 +37,8 @@ contract QnAEscrowTest is Test {
     bytes32 private constant _TYPEHASH = keccak256(
         "CreateQuestion(address creator,bytes32 questionId,address token,uint256 rewardAmount,bytes32 questionHash,uint256 signedAt)"
     );
-    bytes32 private constant _UPDATE_Q_TYPEHASH = keccak256(
-        "UpdateQuestion(address asker,bytes32 questionId,bytes32 newQuestionHash,uint256 signedAt)"
-    );
+    bytes32 private constant _UPDATE_Q_TYPEHASH =
+        keccak256("UpdateQuestion(address asker,bytes32 questionId,bytes32 newQuestionHash,uint256 signedAt)");
     bytes32 private constant _SUBMIT_A_TYPEHASH = keccak256(
         "SubmitAnswer(address responder,bytes32 questionId,bytes32 answerId,bytes32 contentHash,uint256 signedAt)"
     );
@@ -72,15 +71,11 @@ contract QnAEscrowTest is Test {
         );
     }
 
-    function _sign(
-        uint256 pk,
-        address creator,
-        bytes32 qId,
-        address tok,
-        uint256 amt,
-        bytes32 qh,
-        uint256 sat
-    ) internal view returns (bytes memory) {
+    function _sign(uint256 pk, address creator, bytes32 qId, address tok, uint256 amt, bytes32 qh, uint256 sat)
+        internal
+        view
+        returns (bytes memory)
+    {
         bytes32 h = keccak256(abi.encode(_TYPEHASH, creator, qId, tok, amt, qh, sat));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
