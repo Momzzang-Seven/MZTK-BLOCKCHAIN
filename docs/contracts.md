@@ -19,6 +19,19 @@ see [architecture.md](./architecture.md).
 
 ---
 
+## Deployed Addresses (Base Sepolia, chainId=84532)
+
+| Contract | Address |
+|---|---|
+| `MarketplaceEscrow` | `0x2955e5239077B8C1010F6F670152DA11F0b487d0` |
+| `QnAEscrow` | `0x394f5212bb44821DDfCe6D618913CEf588482dAD` |
+| `NonceTracker` | `0x947Ba6E8994B070113318E50aBb42636Db79A3Ab` |
+| `DefaultReceiver` | `0x858C82363e7562ec1845e6BcFa1C0355F039Dac3` |
+| `EIP7702Proxy` | `0xD31dD102AD94e992715078F7ce2d51d9d7081c73` |
+| `BatchImplementation` | `0xB550530762b3634C7beF21a1e376AeDd3A6eAdB4` |
+
+---
+
 ## MarketplaceEscrow
 
 **Inherits:** `IMarketplaceEscrow`, `Ownable`

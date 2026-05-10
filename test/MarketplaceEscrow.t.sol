@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {MarketplaceEscrow} from "../src/MarketplaceEscrow.sol";
@@ -32,7 +32,7 @@ contract MarketplaceEscrowTest is Test {
     uint256 public price = 100 ether;
     uint256 public orderNonce = 1;
     bytes32 private constant _TYPEHASH = keccak256(
-        "PurchaseClass(address buyer,bytes32 orderId,address token,address trainer,uint256 price,uint256 nonce,uint256 signedAt)"
+        "PurchaseClass(address buyer,bytes32 orderId,address token,address trainer,uint256 price,uint256 signedAt)"
     );
     BatchImplementation public batchImpl;
 
@@ -67,10 +67,9 @@ contract MarketplaceEscrowTest is Test {
         address _tok,
         address _trainer,
         uint256 _price,
-        uint256 nonce,
         uint256 signedAt
     ) internal view returns (bytes memory) {
-        bytes32 h = keccak256(abi.encode(_TYPEHASH, _buyer, orderId, _tok, _trainer, _price, nonce, signedAt));
+        bytes32 h = keccak256(abi.encode(_TYPEHASH, _buyer, orderId, _tok, _trainer, _price, signedAt));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
@@ -104,7 +103,7 @@ contract MarketplaceEscrowTest is Test {
     function _buy() internal returns (bytes32) {
         bytes32 id = keccak256(abi.encodePacked("order", orderNonce++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, buyer, id, address(token), trainer, price, escrow.nonces(buyer), sat);
+        bytes memory sig = _sign(signerPk, buyer, id, address(token), trainer, price, sat);
         vm.startPrank(buyer);
         token.approve(address(escrow), type(uint256).max);
         escrow.purchaseClass(id, address(token), trainer, price, sat, sig);
@@ -115,7 +114,7 @@ contract MarketplaceEscrowTest is Test {
     function _buyBatch() internal returns (bytes32 id) {
         id = keccak256(abi.encodePacked("order", orderNonce++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, buyer, id, address(token), trainer, price, escrow.nonces(buyer), sat);
+        bytes memory sig = _sign(signerPk, buyer, id, address(token), trainer, price, sat);
         BatchImplementation.Call[] memory c = new BatchImplementation.Call[](2);
         c[0] = BatchImplementation.Call({
             to: address(token), value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, address(escrow), price)
@@ -216,7 +215,7 @@ contract MarketplaceEscrowTest is Test {
     function test_Fail_InvalidSignature() public {
         bytes32 id = keccak256(abi.encodePacked("order", orderNonce++));
         uint256 sat = block.timestamp;
-        bytes memory bad = _sign(0xBAD, buyer, id, address(token), trainer, price, 0, sat);
+        bytes memory bad = _sign(0xBAD, buyer, id, address(token), trainer, price, sat);
         vm.startPrank(buyer);
         token.approve(address(escrow), type(uint256).max);
         vm.expectRevert(IMarketplaceEscrow.InvalidSignature.selector);
@@ -227,7 +226,7 @@ contract MarketplaceEscrowTest is Test {
     function test_Fail_ExpiredSignature() public {
         bytes32 id = keccak256(abi.encodePacked("order", orderNonce++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, buyer, id, address(token), trainer, price, 0, sat);
+        bytes memory sig = _sign(signerPk, buyer, id, address(token), trainer, price, sat);
         vm.warp(block.timestamp + 16 minutes);
         vm.startPrank(buyer);
         token.approve(address(escrow), type(uint256).max);
@@ -240,7 +239,7 @@ contract MarketplaceEscrowTest is Test {
         bytes32 id1 = keccak256(abi.encodePacked("order", orderNonce++));
         bytes32 id2 = keccak256(abi.encodePacked("order", orderNonce++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, buyer, id1, address(token), trainer, price, 0, sat);
+        bytes memory sig = _sign(signerPk, buyer, id1, address(token), trainer, price, sat);
         vm.startPrank(buyer);
         token.approve(address(escrow), type(uint256).max);
         escrow.purchaseClass(id1, address(token), trainer, price, sat, sig);
@@ -294,7 +293,7 @@ contract MarketplaceEscrowTest is Test {
         bad.mint(buyer, 100 ether);
         bytes32 id = keccak256(abi.encodePacked("order", orderNonce++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, buyer, id, address(bad), trainer, price, 0, sat);
+        bytes memory sig = _sign(signerPk, buyer, id, address(bad), trainer, price, sat);
         vm.startPrank(buyer);
         bad.approve(address(escrow), type(uint256).max);
         vm.expectRevert(IMarketplaceEscrow.UnsupportedToken.selector);

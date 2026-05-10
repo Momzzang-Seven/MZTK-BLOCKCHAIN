@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {QnAEscrow} from "../src/QnAEscrow.sol";
@@ -35,7 +35,7 @@ contract QnAEscrowTest is Test {
     uint256 public qN = 1;
     uint256 public aN = 1;
     bytes32 private constant _TYPEHASH = keccak256(
-        "CreateQuestion(address creator,bytes32 questionId,address token,uint256 rewardAmount,bytes32 questionHash,uint256 nonce,uint256 signedAt)"
+        "CreateQuestion(address creator,bytes32 questionId,address token,uint256 rewardAmount,bytes32 questionHash,uint256 signedAt)"
     );
     BatchImplementation public batchImpl;
 
@@ -70,10 +70,9 @@ contract QnAEscrowTest is Test {
         address tok,
         uint256 amt,
         bytes32 qh,
-        uint256 nonce,
         uint256 sat
     ) internal view returns (bytes memory) {
-        bytes32 h = keccak256(abi.encode(_TYPEHASH, creator, qId, tok, amt, qh, nonce, sat));
+        bytes32 h = keccak256(abi.encode(_TYPEHASH, creator, qId, tok, amt, qh, sat));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
@@ -90,7 +89,7 @@ contract QnAEscrowTest is Test {
             )
         );
         bytes32 ct = keccak256("Call(address to,uint256 value,bytes data)");
-        bytes32 bt = keccak256("Batch(uint256 nonce,Call[] calls)Call(address to,uint256 value,bytes data)");
+        bytes32 bt = keccak256("Batch(uint256Call[] calls)Call(address to,uint256 value,bytes data)");
         bytes32[] memory ch = new bytes32[](calls.length);
         for (uint256 i = 0; i < calls.length; i++) {
             ch[i] = keccak256(abi.encode(ct, calls[i].to, calls[i].value, keccak256(calls[i].data)));
@@ -107,7 +106,7 @@ contract QnAEscrowTest is Test {
     function _ask() internal returns (bytes32) {
         bytes32 qId = keccak256(abi.encodePacked("question", qN++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, asker, qId, address(token), reward, qHash, escrow.nonces(asker), sat);
+        bytes memory sig = _sign(signerPk, asker, qId, address(token), reward, qHash, sat);
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
         escrow.createQuestion(qId, address(token), reward, qHash, sat, sig);
@@ -118,7 +117,7 @@ contract QnAEscrowTest is Test {
     function _askBatch() internal returns (bytes32 qId) {
         qId = keccak256(abi.encodePacked("question", qN++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, asker, qId, address(token), reward, qHash, escrow.nonces(asker), sat);
+        bytes memory sig = _sign(signerPk, asker, qId, address(token), reward, qHash, sat);
         BatchImplementation.Call[] memory c = new BatchImplementation.Call[](2);
         c[0] = BatchImplementation.Call({
             to: address(token), value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, address(escrow), reward)
@@ -133,7 +132,7 @@ contract QnAEscrowTest is Test {
         _execBatch(c);
     }
 
-    // ─── Question Creation ───
+    // ?????? Question Creation ??????
 
     function test_CreateQuestion_GaslessBatch() public {
         bytes32 qId = _askBatch();
@@ -146,7 +145,7 @@ contract QnAEscrowTest is Test {
     function test_Fail_InvalidSignature() public {
         bytes32 qId = keccak256(abi.encodePacked("question", qN++));
         uint256 sat = block.timestamp;
-        bytes memory bad = _sign(0xBAD, asker, qId, address(token), reward, qHash, 0, sat);
+        bytes memory bad = _sign(0xBAD, asker, qId, address(token), reward, qHash, sat);
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
         vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
@@ -157,7 +156,7 @@ contract QnAEscrowTest is Test {
     function test_Fail_ExpiredSig() public {
         bytes32 qId = keccak256(abi.encodePacked("question", qN++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, asker, qId, address(token), reward, qHash, 0, sat);
+        bytes memory sig = _sign(signerPk, asker, qId, address(token), reward, qHash, sat);
         vm.warp(block.timestamp + 16 minutes);
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
@@ -170,7 +169,7 @@ contract QnAEscrowTest is Test {
         bytes32 qId1 = keccak256(abi.encodePacked("question", qN++));
         bytes32 qId2 = keccak256(abi.encodePacked("question", qN++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, asker, qId1, address(token), reward, qHash, 0, sat);
+        bytes memory sig = _sign(signerPk, asker, qId1, address(token), reward, qHash, sat);
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
         escrow.createQuestion(qId1, address(token), reward, qHash, sat, sig);
@@ -182,7 +181,7 @@ contract QnAEscrowTest is Test {
     function test_Fail_BadReward() public {
         bytes32 qId = keccak256(abi.encodePacked("question", qN++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, asker, qId, address(token), 0, qHash, 0, sat);
+        bytes memory sig = _sign(signerPk, asker, qId, address(token), 0, qHash, sat);
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
         vm.expectRevert(IQnAEscrow.InvalidRewardAmount.selector);
@@ -190,7 +189,7 @@ contract QnAEscrowTest is Test {
         vm.stopPrank();
     }
 
-    // ─── Answer Flow ───
+    // ?????? Answer Flow ??????
 
     function test_SubmitAnswer() public {
         bytes32 qId = _ask();
@@ -261,7 +260,7 @@ contract QnAEscrowTest is Test {
         escrow.deleteQuestion(qId);
     }
 
-    // ─── Admin ───
+    // ?????? Admin ??????
 
     function test_RelayerFunctions() public {
         vm.prank(owner);
@@ -279,7 +278,7 @@ contract QnAEscrowTest is Test {
         assertEq(escrow.getQuestion(qId2).state, escrow.STATE_DELETED());
     }
 
-    // ─── Deadline / Emergency Exit ───
+    // ?????? Deadline / Emergency Exit ??????
 
     function test_ClaimExpiredRefund_NoAnswers() public {
         bytes32 qId = _ask();
@@ -357,7 +356,7 @@ contract QnAEscrowTest is Test {
         escrow.adminSettle(qId, aId, qHash, aHash);
     }
 
-    // ─── Misc ───
+    // ?????? Misc ??????
 
     function test_GetAnswers() public {
         bytes32 qId = _ask();
@@ -380,7 +379,7 @@ contract QnAEscrowTest is Test {
         bad.mint(asker, 100 ether);
         bytes32 qId = keccak256(abi.encodePacked("question", qN++));
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, asker, qId, address(bad), reward, qHash, 0, sat);
+        bytes memory sig = _sign(signerPk, asker, qId, address(bad), reward, qHash, sat);
         vm.startPrank(asker);
         bad.approve(address(escrow), type(uint256).max);
         vm.expectRevert(IQnAEscrow.UnsupportedToken.selector);
@@ -391,7 +390,7 @@ contract QnAEscrowTest is Test {
     function test_Fail_QuestionAlreadyExists() public {
         bytes32 qId = _ask();
         uint256 sat = block.timestamp;
-        bytes memory sig = _sign(signerPk, asker, qId, address(token), reward, qHash, escrow.nonces(asker), sat);
+        bytes memory sig = _sign(signerPk, asker, qId, address(token), reward, qHash, sat);
         vm.startPrank(asker);
         vm.expectRevert(IQnAEscrow.QuestionAlreadyExists.selector);
         escrow.createQuestion(qId, address(token), reward, qHash, sat, sig);

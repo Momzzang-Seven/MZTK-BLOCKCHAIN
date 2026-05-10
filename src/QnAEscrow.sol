@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -13,7 +13,7 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
 
     // EIP-712 typehash for server-signed question creation authorization
     bytes32 private constant _CREATE_QUESTION_TYPEHASH = keccak256(
-        "CreateQuestion(address creator,bytes32 questionId,address token,uint256 rewardAmount,bytes32 questionHash,uint256 nonce,uint256 signedAt)"
+        "CreateQuestion(address creator,bytes32 questionId,address token,uint256 rewardAmount,bytes32 questionHash,uint256 signedAt)"
     );
 
     // State constants representing the lifecycle of a question
@@ -43,9 +43,6 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
 
     // Server address whose EIP-712 signature is required for createQuestion
     address public signer;
-
-    // Per-creator nonce to prevent server signature replay
-    mapping(address => uint256) public nonces;
 
     // Mapping from question ID to Question details
     mapping(bytes32 => Question) public questions;
@@ -137,12 +134,10 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
                 token,
                 rewardAmount,
                 questionHash,
-                nonces[msg.sender],
                 signedAt
             )
         );
         if (ECDSA.recover(_hashTypedDataV4(structHash), signature) != signer) revert InvalidSignature();
-        nonces[msg.sender]++;
 
         uint48 deadline = uint48(block.timestamp) + defaultDeadlineDuration;
 
@@ -305,7 +300,7 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
     }
 
     // Administratively refunds a question by sending the reward back to the asker.
-    // Intentionally has no deadline guard — refunding is always safe regardless of deadline.
+    // Intentionally has no deadline guard ??refunding is always safe regardless of deadline.
     // After deadline, both adminRefund and claimExpiredRefund are callable; first caller wins.
     function adminRefund(bytes32 questionId) external onlyRelayerOrOwner {
         Question storage q = questions[questionId];
@@ -328,7 +323,7 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
     // Always transitions to STATE_DEADLINE_REFUNDED regardless of answerCount.
     //
     // Safety invariant against MEV frontrunning:
-    //   - STATE_CREATED (no answers): permissionless — anyone can trigger the refund.
+    //   - STATE_CREATED (no answers): permissionless ??anyone can trigger the refund.
     //   - STATE_ANSWERED (has answers): only the asker may call, because acceptAnswer
     //     is still available to them. A third party must not be able to steal the
     //     asker's chance to pay a responder by front-running this function.

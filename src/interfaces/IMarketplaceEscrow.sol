@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 interface IMarketplaceEscrow {
     struct ClassOrder {
@@ -70,5 +70,4 @@ interface IMarketplaceEscrow {
     function claimExpiredRefund(bytes32 orderId) external;
     function getOrder(bytes32 orderId) external view returns (ClassOrder memory);
     function getOrders(bytes32[] calldata orderIds) external view returns (ClassOrder[] memory);
-    function nonces(address buyer) external view returns (uint256);
 }

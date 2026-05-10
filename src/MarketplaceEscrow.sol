@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -13,7 +13,7 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
 
     // EIP-712 typehash for server-signed purchase authorization
     bytes32 private constant _PURCHASE_CLASS_TYPEHASH = keccak256(
-        "PurchaseClass(address buyer,bytes32 orderId,address token,address trainer,uint256 price,uint256 nonce,uint256 signedAt)"
+        "PurchaseClass(address buyer,bytes32 orderId,address token,address trainer,uint256 price,uint256 signedAt)"
     );
 
     // State constants representing the lifecycle of an order
@@ -42,9 +42,6 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
 
     // Server address whose EIP-712 signature is required for purchaseClass
     address public signer;
-
-    // Per-buyer nonce to prevent server signature replay
-    mapping(address => uint256) public nonces;
 
     // Mapping from order ID to ClassOrder details
     mapping(bytes32 => ClassOrder) public orders;
@@ -133,11 +130,10 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
         if (block.timestamp > signedAt + sigValidityDuration) revert SignatureExpired();
         bytes32 structHash = keccak256(
             abi.encode(
-                _PURCHASE_CLASS_TYPEHASH, msg.sender, orderId, token, trainer, price, nonces[msg.sender], signedAt
+                _PURCHASE_CLASS_TYPEHASH, msg.sender, orderId, token, trainer, price, signedAt
             )
         );
         if (ECDSA.recover(_hashTypedDataV4(structHash), signature) != signer) revert InvalidSignature();
-        nonces[msg.sender]++;
 
         uint48 deadline = uint48(block.timestamp) + defaultDeadlineDuration;
 
@@ -173,7 +169,7 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
     }
 
     // Cancels the order and refunds locked tokens to the buyer; callable by buyer or trainer.
-    // Intentionally has no deadline guard — refunding is always safe regardless of deadline.
+    // Intentionally has no deadline guard ??refunding is always safe regardless of deadline.
     // After deadline, both cancelClass and claimExpiredRefund are callable; first caller wins.
     function cancelClass(bytes32 orderId) external {
         ClassOrder storage o = orders[orderId];
@@ -203,7 +199,7 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
     }
 
     // Administratively refunds an order, transferring tokens back to the buyer.
-    // Intentionally has no deadline guard — refunding is always safe regardless of deadline.
+    // Intentionally has no deadline guard ??refunding is always safe regardless of deadline.
     // After deadline, both adminRefund and claimExpiredRefund are callable; first caller wins.
     function adminRefund(bytes32 orderId) external onlyRelayerOrOwner {
         ClassOrder storage o = orders[orderId];

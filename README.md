@@ -13,6 +13,42 @@ Foundry consists of:
 
 https://book.getfoundry.sh/
 
+## Deployed Contracts
+
+### Optimism Sepolia (Chain ID: 11155420)
+
+| Contract | Address |
+| :--- | :--- |
+| **MZTK Token** | `0x815B53fD2D56044BaC39c1f7a9C7d3E67322f0F5` |
+| **MarketplaceEscrow** | `0x872070a70b291caC3Dc65DaA50670b22dcf739Ff` |
+| **QnAEscrow** | `0xbd735bD909F26034587CC209e338f30a05aed561` |
+| **NonceTracker** | `0x187566a1e325705C53f097012E504BC20DF65501` |
+| **DefaultReceiver** | `0x91E72675C37599Cfdf6A11E6976747e1a3E865A2` |
+| **EIP7702Proxy** | `0xb5214954cC7492B0a23Ca044D16fcB381Ba1d207` |
+| **BatchImplementation** | `0x8D23eD2521A8a8F7C26576171d70c06DcaC06C93` |
+
+### Base Sepolia (Chain ID: 84532)
+
+| Contract | Address |
+| :--- | :--- |
+| **MZTK Token** | `0xfd6c0dc7fbe6a200d53d00bbaa2a276d02865de8` |
+| **MarketplaceEscrow** | `0x2955e5239077B8C1010F6F670152DA11F0b487d0` |
+| **QnAEscrow** | `0x394f5212bb44821DDfCe6D618913CEf588482dAD` |
+| **NonceTracker** | `0x947Ba6E8994B070113318E50aBb42636Db79A3Ab` |
+| **DefaultReceiver** | `0x858C82363e7562ec1845e6BcFa1C0355F039Dac3` |
+| **EIP7702Proxy** | `0xD31dD102AD94e992715078F7ce2d51d9d7081c73` |
+| **BatchImplementation** | `0xB550530762b3634C7beF21a1e376AeDd3A6eAdB4` |
+
+## EVM Version
+
+- **Target Version:** `cancun` (Default for current deployments)
+- **Upcoming Compatibility:**
+    - Prague (Expected 2025.05)
+    - Osaka (Latest)
+- **Reference:** [Blockscout EVM Version Info](https://docs.blockscout.com/setup/information-and-settings/evm-version-information)
+
+---
+
 ## Usage
 
 ### Build

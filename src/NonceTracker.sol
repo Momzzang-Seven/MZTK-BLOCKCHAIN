@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.23;
+pragma solidity ^0.8.34;
 
 contract NonceTracker {
     mapping(address account => uint256 nonce) public nonces;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.33;
+pragma solidity ^0.8.34;
 
 interface IQnAEscrow {
     struct Question {
@@ -114,5 +114,4 @@ interface IQnAEscrow {
     function deleteAnswer(bytes32 questionId, bytes32 answerId) external;
     function getAnswer(bytes32 questionId, bytes32 answerId) external view returns (Answer memory);
     function getAnswers(bytes32 questionId, bytes32[] calldata answerIds) external view returns (Answer[] memory);
-    function nonces(address creator) external view returns (uint256);
 }

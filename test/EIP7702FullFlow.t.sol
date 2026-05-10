@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.23;
+pragma solidity ^0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {EIP7702Proxy} from "../src/EIP7702Proxy.sol";
