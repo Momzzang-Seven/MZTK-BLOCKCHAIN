@@ -50,6 +50,10 @@ contract EIP7702Proxy is Proxy {
                 _IMPLEMENTATION_SET_TYPEHASH,
                 block.chainid,
                 _proxy,
+                // ⚠️  nonceTracker.useNonce() is called inside abi.encode(), which means the nonce
+                //     is consumed BEFORE the signature is verified below. An attacker can call
+                //     setImplementation with a bogus signature to burn the EOA's nonce at zero cost.
+                //     Known limitation: fix requires splitting useNonce() into read + commit.
                 nonceTracker.useNonce(),
                 ERC1967Utils.getImplementation(),
                 newImplementation,

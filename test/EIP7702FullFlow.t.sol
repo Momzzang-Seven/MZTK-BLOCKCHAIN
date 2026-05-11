@@ -27,6 +27,10 @@ contract EIP7702FullFlowTest is Test {
     address eoa = vm.addr(eoaKey);
     address sponsor = address(0x9999);
 
+    // EIP-712 typehashes for BatchImplementation (Mztk7702Execution)
+    bytes32 private constant _EXECUTION_TYPEHASH =
+        keccak256("Mztk7702Execution(string prepareId,bytes32 callDataHash,uint256 deadline)");
+
     function setUp() public {
         tracker = new NonceTracker();
         receiver = new DefaultReceiver();
@@ -36,6 +40,31 @@ contract EIP7702FullFlowTest is Test {
 
         vm.deal(eoa, 10 ether);
         nft.mint(eoa, 7702);
+    }
+
+    function _batchDomain() internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("MomzzangSeven")),
+                keccak256(bytes("1")),
+                block.chainid,
+                eoa // verifyingContract = EOA address under EIP-7702
+            )
+        );
+    }
+
+    function _signBatch(uint256 pk, BatchImplementation.Call[] memory calls, string memory prepareId, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 prepareIdHash = keccak256(bytes(prepareId));
+        bytes32 callDataHash = keccak256(abi.encode(calls));
+        bytes32 structHash = keccak256(abi.encode(_EXECUTION_TYPEHASH, prepareIdHash, callDataHash, deadline));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _batchDomain(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function test_EIP712_Full_Lifecycle() public {
@@ -80,31 +109,12 @@ contract EIP7702FullFlowTest is Test {
             data: abi.encodeWithSelector(nft.transferFrom.selector, eoa, address(0x123), 7702)
         });
 
-        bytes32[] memory callHashes = new bytes32[](1);
-        callHashes[0] = keccak256(
-            abi.encode(keccak256("Call(address to,uint256 value,bytes data)"), calls[0].to, 0, keccak256(calls[0].data))
-        );
-        bytes32 batchStructHash = keccak256(
-            abi.encode(
-                keccak256("Batch(uint256 nonce,Call[] calls)Call(address to,uint256 value,bytes data)"),
-                0,
-                keccak256(abi.encodePacked(callHashes))
-            )
-        );
-        bytes32 batchDomain = keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes("BatchAccount")),
-                keccak256(bytes("1")),
-                block.chainid,
-                eoa
-            )
-        );
-        bytes32 batchDigest = keccak256(abi.encodePacked("\x19\x01", batchDomain, batchStructHash));
-        (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(eoaKey, batchDigest);
+        string memory prepareId = "test-prepare-id-001";
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signBatch(eoaKey, calls, prepareId, deadline);
 
         vm.prank(sponsor);
-        BatchImplementation(payable(eoa)).execute(calls, abi.encodePacked(r2, s2, v2));
+        BatchImplementation(payable(eoa)).execute(calls, prepareId, deadline, sig);
 
         assertEq(nft.ownerOf(7702), address(0x123));
     }
