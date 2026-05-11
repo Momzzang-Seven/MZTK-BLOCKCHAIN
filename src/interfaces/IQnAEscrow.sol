@@ -119,15 +119,25 @@ interface IQnAEscrow {
         uint256 signedAt,
         bytes calldata signature
     ) external;
-    function acceptAnswer(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash) external;
-    function deleteQuestion(bytes32 questionId) external;
+    // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
+    function acceptAnswer(
+        bytes32 questionId,
+        bytes32 answerId,
+        bytes32 questionHash,
+        bytes32 contentHash,
+        uint256 signedAt,
+        bytes calldata signature
+    ) external;
+    // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
+    function deleteQuestion(bytes32 questionId, uint256 signedAt, bytes calldata signature) external;
     function adminSettle(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash) external;
     function adminRefund(bytes32 questionId) external;
     // Permissionless refund callable by anyone once the question deadline has passed
     function claimExpiredRefund(bytes32 questionId) external;
     function getQuestion(bytes32 questionId) external view returns (Question memory);
     function getQuestions(bytes32[] calldata questionIds) external view returns (Question[] memory);
-    function deleteAnswer(bytes32 questionId, bytes32 answerId) external;
+    // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
+    function deleteAnswer(bytes32 questionId, bytes32 answerId, uint256 signedAt, bytes calldata signature) external;
     function getAnswer(bytes32 questionId, bytes32 answerId) external view returns (Answer memory);
     function getAnswers(bytes32 questionId, bytes32[] calldata answerIds) external view returns (Answer[] memory);
 }

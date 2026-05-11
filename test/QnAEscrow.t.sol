@@ -45,6 +45,13 @@ contract QnAEscrowTest is Test {
     bytes32 private constant _UPDATE_A_TYPEHASH = keccak256(
         "UpdateAnswer(address responder,bytes32 questionId,bytes32 answerId,bytes32 newContentHash,uint256 signedAt)"
     );
+    bytes32 private constant _DELETE_A_TYPEHASH =
+        keccak256("DeleteAnswer(address responder,bytes32 questionId,bytes32 answerId,uint256 signedAt)");
+    bytes32 private constant _ACCEPT_A_TYPEHASH = keccak256(
+        "AcceptAnswer(address asker,bytes32 questionId,bytes32 answerId,bytes32 questionHash,bytes32 contentHash,uint256 signedAt)"
+    );
+    bytes32 private constant _DELETE_Q_TYPEHASH =
+        keccak256("DeleteQuestion(address asker,bytes32 questionId,uint256 signedAt)");
     BatchImplementation public batchImpl;
 
     function setUp() public {
@@ -110,6 +117,43 @@ contract QnAEscrowTest is Test {
         returns (bytes memory)
     {
         bytes32 h = keccak256(abi.encode(_UPDATE_A_TYPEHASH, responderAddr, qId, aId, newCh, sat));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signDeleteA(uint256 pk, address responderAddr, bytes32 qId, bytes32 aId, uint256 sat)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 h = keccak256(abi.encode(_DELETE_A_TYPEHASH, responderAddr, qId, aId, sat));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signAcceptA(
+        uint256 pk,
+        address askerAddr,
+        bytes32 qId,
+        bytes32 aId,
+        bytes32 questionHash,
+        bytes32 contentHash,
+        uint256 sat
+    ) internal view returns (bytes memory) {
+        bytes32 h = keccak256(abi.encode(_ACCEPT_A_TYPEHASH, askerAddr, qId, aId, questionHash, contentHash, sat));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signDeleteQ(uint256 pk, address askerAddr, bytes32 qId, uint256 sat)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 h = keccak256(abi.encode(_DELETE_Q_TYPEHASH, askerAddr, qId, sat));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
@@ -258,8 +302,10 @@ contract QnAEscrowTest is Test {
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
         _submit(qId, aId, aHash, responder);
         uint256 bal = token.balanceOf(responder);
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signAcceptA(signerPk, asker, qId, aId, qHash, aHash, sat);
         vm.prank(asker);
-        escrow.acceptAnswer(qId, aId, qHash, aHash);
+        escrow.acceptAnswer(qId, aId, qHash, aHash, sat, sig);
         assertEq(token.balanceOf(responder), bal + reward);
         assertEq(escrow.getQuestion(qId).state, escrow.STATE_PAID_OUT());
     }
@@ -269,8 +315,10 @@ contract QnAEscrowTest is Test {
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
         _submit(qId, aId, aHash, responder);
         vm.prank(stranger);
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signAcceptA(signerPk, stranger, qId, aId, qHash, aHash, sat);
         vm.expectRevert(IQnAEscrow.OnlyAskerCanAccept.selector);
-        escrow.acceptAnswer(qId, aId, qHash, aHash);
+        escrow.acceptAnswer(qId, aId, qHash, aHash, sat, sig);
     }
 
     function test_DeleteAnswer_LastAnswer_ResetState() public {
@@ -278,15 +326,19 @@ contract QnAEscrowTest is Test {
         bytes32 aId = keccak256(abi.encodePacked("answer", aN++));
         _submit(qId, aId, aHash, responder);
         assertEq(escrow.getQuestion(qId).state, escrow.STATE_ANSWERED());
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signDeleteA(signerPk, responder, qId, aId, sat);
         vm.prank(responder);
-        escrow.deleteAnswer(qId, aId);
+        escrow.deleteAnswer(qId, aId, sat, sig);
         assertEq(escrow.getQuestion(qId).state, escrow.STATE_CREATED());
     }
 
     function test_deleteQuestion() public {
         bytes32 qId = _ask();
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signDeleteQ(signerPk, asker, qId, sat);
         vm.prank(asker);
-        escrow.deleteQuestion(qId);
+        escrow.deleteQuestion(qId, sat, sig);
         assertEq(token.balanceOf(asker), 10000 ether);
         assertEq(escrow.getQuestion(qId).state, escrow.STATE_DELETED());
     }
@@ -299,7 +351,9 @@ contract QnAEscrowTest is Test {
         // so it reverts with QuestionAlreadyResolved before reaching CannotDeleteWithAnswers
         vm.prank(asker);
         vm.expectRevert(IQnAEscrow.QuestionAlreadyResolved.selector);
-        escrow.deleteQuestion(qId);
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signDeleteQ(signerPk, asker, qId, sat);
+        escrow.deleteQuestion(qId, sat, sig);
     }
 
     // ?????? Admin ??????

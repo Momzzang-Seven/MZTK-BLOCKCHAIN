@@ -26,6 +26,16 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
     bytes32 private constant _UPDATE_ANSWER_TYPEHASH = keccak256(
         "UpdateAnswer(address responder,bytes32 questionId,bytes32 answerId,bytes32 newContentHash,uint256 signedAt)"
     );
+    // EIP-712 typehash for server-signed answer deletion authorization
+    bytes32 private constant _DELETE_ANSWER_TYPEHASH =
+        keccak256("DeleteAnswer(address responder,bytes32 questionId,bytes32 answerId,uint256 signedAt)");
+    // EIP-712 typehash for server-signed answer acceptance authorization
+    bytes32 private constant _ACCEPT_ANSWER_TYPEHASH = keccak256(
+        "AcceptAnswer(address asker,bytes32 questionId,bytes32 answerId,bytes32 questionHash,bytes32 contentHash,uint256 signedAt)"
+    );
+    // EIP-712 typehash for server-signed question deletion authorization
+    bytes32 private constant _DELETE_QUESTION_TYPEHASH =
+        keccak256("DeleteQuestion(address asker,bytes32 questionId,uint256 signedAt)");
 
     // State constants representing the lifecycle of a question
     uint16 public constant STATE_CREATED = 1000;
@@ -252,8 +262,9 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         if (ECDSA.recover(_hashTypedDataV4(structHash), signature) != signer) revert InvalidSignature();
     }
 
-    // Deletes an answer submitted by the user
-    function deleteAnswer(bytes32 questionId, bytes32 answerId) external {
+    // Deletes an answer submitted by the user.
+    // Requires a valid EIP-712 signature from the server authorizing this deletion.
+    function deleteAnswer(bytes32 questionId, bytes32 answerId, uint256 signedAt, bytes calldata signature) external {
         Question storage q = questions[questionId];
 
         if (q.asker == address(0)) revert QuestionNotFound();
@@ -262,6 +273,9 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         Answer storage a = answers[questionId][answerId];
         if (a.responder == address(0)) revert AnswerNotFound();
         if (msg.sender != a.responder) revert OnlyResponderCanDelete();
+
+        bytes32 structHash = keccak256(abi.encode(_DELETE_ANSWER_TYPEHASH, msg.sender, questionId, answerId, signedAt));
+        _verifyServerSig(structHash, signedAt, signature);
 
         address responder = a.responder;
         delete answers[questionId][answerId];
@@ -274,8 +288,16 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         emit AnswerDeleted(questionId, answerId, responder);
     }
 
-    // Accepts an answer and transfers the locked reward to the responder
-    function acceptAnswer(bytes32 questionId, bytes32 answerId, bytes32 questionHash, bytes32 contentHash) external {
+    // Accepts an answer and transfers the locked reward to the responder.
+    // Requires a valid EIP-712 signature from the server authorizing this acceptance.
+    function acceptAnswer(
+        bytes32 questionId,
+        bytes32 answerId,
+        bytes32 questionHash,
+        bytes32 contentHash,
+        uint256 signedAt,
+        bytes calldata signature
+    ) external {
         Question storage q = questions[questionId];
 
         if (q.asker == address(0)) revert QuestionNotFound();
@@ -287,6 +309,11 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         if (a.responder == address(0)) revert AnswerNotFound();
         if (a.contentHash != contentHash) revert HashMismatch();
 
+        bytes32 structHash = keccak256(
+            abi.encode(_ACCEPT_ANSWER_TYPEHASH, msg.sender, questionId, answerId, questionHash, contentHash, signedAt)
+        );
+        _verifyServerSig(structHash, signedAt, signature);
+
         q.state = STATE_PAID_OUT;
         q.acceptedAnswerId = answerId;
 
@@ -295,8 +322,9 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         emit AnswerAccepted(questionId, answerId, a.responder, q.rewardAmount, questionHash, contentHash);
     }
 
-    // Deletes a question and refunds the locked reward to the asker
-    function deleteQuestion(bytes32 questionId) external {
+    // Deletes a question and refunds the locked reward to the asker.
+    // Requires a valid EIP-712 signature from the server authorizing this deletion.
+    function deleteQuestion(bytes32 questionId, uint256 signedAt, bytes calldata signature) external {
         Question storage q = questions[questionId];
 
         if (q.asker == address(0)) revert QuestionNotFound();
@@ -304,6 +332,9 @@ contract QnAEscrow is IQnAEscrow, Ownable, EIP712 {
         // STATE_CREATED always implies answerCount == 0 (invariant).
         if (q.state != STATE_CREATED) revert QuestionAlreadyResolved();
         if (msg.sender != q.asker) revert OnlyAsker();
+
+        bytes32 structHash = keccak256(abi.encode(_DELETE_QUESTION_TYPEHASH, msg.sender, questionId, signedAt));
+        _verifyServerSig(structHash, signedAt, signature);
 
         q.state = STATE_DELETED;
 
