@@ -7,6 +7,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BatchImplementation} from "../src/BatchImplementation.sol";
 import {IQnAEscrow} from "../src/interfaces/IQnAEscrow.sol";
+import {IEscrowBase} from "../src/interfaces/IEscrowBase.sol";
 
 contract MockToken is ERC20 {
     constructor() ERC20("Mock", "MCK") {
@@ -52,6 +53,9 @@ contract QnAEscrowTest is Test {
     );
     bytes32 private constant _DELETE_Q_TYPEHASH =
         keccak256("DeleteQuestion(address asker,bytes32 questionId,uint256 signedAt)");
+    // Mztk7702Execution typehash (BatchImplementation EIP-712)
+    bytes32 private constant _EXECUTION_TYPEHASH =
+        keccak256("Mztk7702Execution(string prepareId,bytes32 callDataHash,uint256 deadline)");
     BatchImplementation public batchImpl;
 
     function setUp() public {
@@ -167,29 +171,37 @@ contract QnAEscrowTest is Test {
         escrow.submitAnswer(qId, aId, cHash, sat, sig);
     }
 
-    function _execBatch(BatchImplementation.Call[] memory calls) internal {
-        bytes32 dom = keccak256(
+    function _batchDomain() internal view returns (bytes32) {
+        return keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes("BatchAccount")),
+                keccak256(bytes("MomzzangSeven")),
                 keccak256(bytes("1")),
                 block.chainid,
-                asker
+                asker // verifyingContract = EOA address under EIP-7702
             )
         );
-        bytes32 ct = keccak256("Call(address to,uint256 value,bytes data)");
-        bytes32 bt = keccak256("Batch(uint256 nonce,Call[] calls)Call(address to,uint256 value,bytes data)");
-        bytes32[] memory ch = new bytes32[](calls.length);
-        for (uint256 i = 0; i < calls.length; i++) {
-            ch[i] = keccak256(abi.encode(ct, calls[i].to, calls[i].value, keccak256(calls[i].data)));
-        }
-        uint256 cn = BatchImplementation(payable(asker)).txNonce();
-        bytes32 digest = keccak256(
-            abi.encodePacked("\x19\x01", dom, keccak256(abi.encode(bt, cn, keccak256(abi.encodePacked(ch)))))
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(askerPk, digest);
+    }
+
+    function _signBatch(uint256 pk, BatchImplementation.Call[] memory calls, string memory prepareId, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 prepareIdHash = keccak256(bytes(prepareId));
+        bytes32 callDataHash = keccak256(abi.encode(calls));
+        bytes32 structHash = keccak256(abi.encode(_EXECUTION_TYPEHASH, prepareIdHash, callDataHash, deadline));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _batchDomain(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _execBatch(BatchImplementation.Call[] memory calls) internal {
+        string memory prepareId = string(abi.encodePacked("prepare-", vm.toString(block.timestamp)));
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signBatch(askerPk, calls, prepareId, deadline);
         vm.prank(relayer);
-        BatchImplementation(payable(asker)).execute(calls, abi.encodePacked(r, s, v));
+        BatchImplementation(payable(asker)).execute(calls, prepareId, deadline, sig);
     }
 
     function _ask() internal returns (bytes32) {
@@ -221,7 +233,7 @@ contract QnAEscrowTest is Test {
         _execBatch(c);
     }
 
-    // ?????? Question Creation ??????
+    // ─── Question Creation ──────────────────────────────────────────────────────
 
     function test_CreateQuestion_GaslessBatch() public {
         bytes32 qId = _askBatch();
@@ -237,7 +249,7 @@ contract QnAEscrowTest is Test {
         bytes memory bad = _sign(0xBAD, asker, qId, address(token), reward, qHash, sat);
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.createQuestion(qId, address(token), reward, qHash, sat, bad);
         vm.stopPrank();
     }
@@ -249,7 +261,7 @@ contract QnAEscrowTest is Test {
         vm.warp(block.timestamp + 16 minutes);
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
-        vm.expectRevert(IQnAEscrow.SignatureExpired.selector);
+        vm.expectRevert(IEscrowBase.SignatureExpired.selector);
         escrow.createQuestion(qId, address(token), reward, qHash, sat, sig);
         vm.stopPrank();
     }
@@ -262,7 +274,7 @@ contract QnAEscrowTest is Test {
         vm.startPrank(asker);
         token.approve(address(escrow), type(uint256).max);
         escrow.createQuestion(qId1, address(token), reward, qHash, sat, sig);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.createQuestion(qId2, address(token), reward, qHash, sat, sig);
         vm.stopPrank();
     }
@@ -278,7 +290,7 @@ contract QnAEscrowTest is Test {
         vm.stopPrank();
     }
 
-    // ?????? Answer Flow ??????
+    // ─── Answer Flow ───────────────────────────────────────────────────────────
 
     function test_SubmitAnswer() public {
         bytes32 qId = _ask();
@@ -356,7 +368,7 @@ contract QnAEscrowTest is Test {
         escrow.deleteQuestion(qId, sat, sig);
     }
 
-    // ?????? Admin ??????
+    // ─── Admin ─────────────────────────────────────────────────────────────────
 
     function test_RelayerFunctions() public {
         vm.prank(owner);
@@ -373,7 +385,7 @@ contract QnAEscrowTest is Test {
         assertEq(escrow.getQuestion(qId2).state, escrow.STATE_DELETED());
     }
 
-    // ?????? Deadline / Emergency Exit ??????
+    // ─── Deadline / Emergency Exit ────────────────────────────────────────────
 
     function test_ClaimExpiredRefund_NoAnswers() public {
         bytes32 qId = _ask();
@@ -447,7 +459,7 @@ contract QnAEscrowTest is Test {
         escrow.adminSettle(qId, aId, qHash, aHash);
     }
 
-    // ?????? Misc ??????
+    // ─── Misc ──────────────────────────────────────────────────────────────────
 
     function test_GetAnswers() public {
         bytes32 qId = _ask();
@@ -472,7 +484,7 @@ contract QnAEscrowTest is Test {
         bytes memory sig = _sign(signerPk, asker, qId, address(bad), reward, qHash, sat);
         vm.startPrank(asker);
         bad.approve(address(escrow), type(uint256).max);
-        vm.expectRevert(IQnAEscrow.UnsupportedToken.selector);
+        vm.expectRevert(IEscrowBase.UnsupportedToken.selector);
         escrow.createQuestion(qId, address(bad), reward, qHash, sat, sig);
         vm.stopPrank();
     }
@@ -517,7 +529,7 @@ contract QnAEscrowTest is Test {
         bytes memory sig = _signUpdateQ(signerPk, asker, qId, newQh, sat);
         vm.warp(block.timestamp + 16 minutes);
         vm.prank(asker);
-        vm.expectRevert(IQnAEscrow.SignatureExpired.selector);
+        vm.expectRevert(IEscrowBase.SignatureExpired.selector);
         escrow.updateQuestion(qId, newQh, sat, sig);
     }
 
@@ -527,7 +539,7 @@ contract QnAEscrowTest is Test {
         uint256 sat = block.timestamp + 1 days;
         bytes memory sig = _signUpdateQ(signerPk, asker, qId, newQh, sat);
         vm.prank(asker);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.updateQuestion(qId, newQh, sat, sig);
     }
 
@@ -537,7 +549,7 @@ contract QnAEscrowTest is Test {
         uint256 sat = block.timestamp;
         bytes memory bad = _signUpdateQ(0xBAD, asker, qId, newQh, sat);
         vm.prank(asker);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.updateQuestion(qId, newQh, sat, bad);
     }
 
@@ -561,7 +573,7 @@ contract QnAEscrowTest is Test {
         uint256 sat = block.timestamp;
         bytes memory sig = _signUpdateQ(signerPk, asker, qId, newQh1, sat);
         vm.prank(asker);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.updateQuestion(qId, newQh2, sat, sig);
     }
 
@@ -582,7 +594,7 @@ contract QnAEscrowTest is Test {
         bytes memory sig = _signSubmitA(signerPk, responder, qId, aId, aHash, sat);
         vm.warp(block.timestamp + 16 minutes);
         vm.prank(responder);
-        vm.expectRevert(IQnAEscrow.SignatureExpired.selector);
+        vm.expectRevert(IEscrowBase.SignatureExpired.selector);
         escrow.submitAnswer(qId, aId, aHash, sat, sig);
     }
 
@@ -592,7 +604,7 @@ contract QnAEscrowTest is Test {
         uint256 sat = block.timestamp + 1 days;
         bytes memory sig = _signSubmitA(signerPk, responder, qId, aId, aHash, sat);
         vm.prank(responder);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.submitAnswer(qId, aId, aHash, sat, sig);
     }
 
@@ -602,7 +614,7 @@ contract QnAEscrowTest is Test {
         uint256 sat = block.timestamp;
         bytes memory bad = _signSubmitA(0xBAD, responder, qId, aId, aHash, sat);
         vm.prank(responder);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.submitAnswer(qId, aId, aHash, sat, bad);
     }
 
@@ -615,7 +627,7 @@ contract QnAEscrowTest is Test {
         uint256 sat = block.timestamp;
         bytes memory sigForResponder = _signSubmitA(signerPk, responder, qId, aId, aHash, sat);
         vm.prank(stranger);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.submitAnswer(qId, aId, aHash, sat, sigForResponder);
     }
 
@@ -627,7 +639,7 @@ contract QnAEscrowTest is Test {
         uint256 sat = block.timestamp;
         bytes memory sig = _signSubmitA(signerPk, responder, qId1, aId, aHash, sat);
         vm.prank(responder);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.submitAnswer(qId2, aId, aHash, sat, sig);
     }
 
@@ -654,7 +666,7 @@ contract QnAEscrowTest is Test {
         bytes memory sig = _signUpdateA(signerPk, responder, qId, aId, newCh, sat);
         vm.warp(block.timestamp + 16 minutes);
         vm.prank(responder);
-        vm.expectRevert(IQnAEscrow.SignatureExpired.selector);
+        vm.expectRevert(IEscrowBase.SignatureExpired.selector);
         escrow.updateAnswer(qId, aId, newCh, sat, sig);
     }
 
@@ -666,7 +678,7 @@ contract QnAEscrowTest is Test {
         uint256 sat = block.timestamp + 1 days;
         bytes memory sig = _signUpdateA(signerPk, responder, qId, aId, newCh, sat);
         vm.prank(responder);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.updateAnswer(qId, aId, newCh, sat, sig);
     }
 
@@ -678,7 +690,7 @@ contract QnAEscrowTest is Test {
         uint256 sat = block.timestamp;
         bytes memory bad = _signUpdateA(0xBAD, responder, qId, aId, newCh, sat);
         vm.prank(responder);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.updateAnswer(qId, aId, newCh, sat, bad);
     }
 
@@ -707,7 +719,7 @@ contract QnAEscrowTest is Test {
         uint256 sat = block.timestamp;
         bytes memory sig = _signUpdateA(signerPk, responder, qId, aId1, newCh, sat);
         vm.prank(responder);
-        vm.expectRevert(IQnAEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.updateAnswer(qId, aId2, newCh, sat, sig);
     }
 }

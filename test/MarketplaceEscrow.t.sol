@@ -7,6 +7,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BatchImplementation} from "../src/BatchImplementation.sol";
 import {IMarketplaceEscrow} from "../src/interfaces/IMarketplaceEscrow.sol";
+import {IEscrowBase} from "../src/interfaces/IEscrowBase.sol";
 
 contract MockToken is ERC20 {
     constructor() ERC20("Mock", "MCK") {
@@ -38,6 +39,9 @@ contract MarketplaceEscrowTest is Test {
         keccak256("ConfirmClass(address buyer,bytes32 orderId,uint256 signedAt)");
     bytes32 private constant _CANCEL_TYPEHASH =
         keccak256("CancelClass(address caller,bytes32 orderId,uint256 signedAt)");
+    // Mztk7702Execution typehash (BatchImplementation EIP-712)
+    bytes32 private constant _EXECUTION_TYPEHASH =
+        keccak256("Mztk7702Execution(string prepareId,bytes32 callDataHash,uint256 deadline)");
     BatchImplementation public batchImpl;
 
     function setUp() public {
@@ -101,29 +105,37 @@ contract MarketplaceEscrowTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _execBatch(BatchImplementation.Call[] memory calls) internal {
-        bytes32 dom = keccak256(
+    function _batchDomain() internal view returns (bytes32) {
+        return keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes("BatchAccount")),
+                keccak256(bytes("MomzzangSeven")),
                 keccak256(bytes("1")),
                 block.chainid,
-                buyer
+                buyer // verifyingContract = EOA address under EIP-7702
             )
         );
-        bytes32 ct = keccak256("Call(address to,uint256 value,bytes data)");
-        bytes32 bt = keccak256("Batch(uint256 nonce,Call[] calls)Call(address to,uint256 value,bytes data)");
-        bytes32[] memory ch = new bytes32[](calls.length);
-        for (uint256 i = 0; i < calls.length; i++) {
-            ch[i] = keccak256(abi.encode(ct, calls[i].to, calls[i].value, keccak256(calls[i].data)));
-        }
-        uint256 cn = BatchImplementation(payable(buyer)).txNonce();
-        bytes32 digest = keccak256(
-            abi.encodePacked("\x19\x01", dom, keccak256(abi.encode(bt, cn, keccak256(abi.encodePacked(ch)))))
-        );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(buyerPk, digest);
+    }
+
+    function _signBatch(uint256 pk, BatchImplementation.Call[] memory calls, string memory prepareId, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 prepareIdHash = keccak256(bytes(prepareId));
+        bytes32 callDataHash = keccak256(abi.encode(calls));
+        bytes32 structHash = keccak256(abi.encode(_EXECUTION_TYPEHASH, prepareIdHash, callDataHash, deadline));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _batchDomain(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _execBatch(BatchImplementation.Call[] memory calls) internal {
+        string memory prepareId = string(abi.encodePacked("prepare-", vm.toString(block.timestamp)));
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signBatch(buyerPk, calls, prepareId, deadline);
         vm.prank(relayer);
-        BatchImplementation(payable(buyer)).execute(calls, abi.encodePacked(r, s, v));
+        BatchImplementation(payable(buyer)).execute(calls, prepareId, deadline, sig);
     }
 
     function _buy() internal returns (bytes32) {
@@ -223,7 +235,7 @@ contract MarketplaceEscrowTest is Test {
     function test_Fail_AdminSettleByNonOwnerOrRelayer() public {
         bytes32 id = _buy();
         vm.prank(stranger);
-        vm.expectRevert(IMarketplaceEscrow.OnlyRelayerOrOwner.selector);
+        vm.expectRevert(IEscrowBase.OnlyRelayerOrOwner.selector);
         escrow.adminSettle(id);
     }
 
@@ -254,7 +266,7 @@ contract MarketplaceEscrowTest is Test {
         bytes memory bad = _sign(0xBAD, buyer, id, address(token), trainer, price, sat);
         vm.startPrank(buyer);
         token.approve(address(escrow), type(uint256).max);
-        vm.expectRevert(IMarketplaceEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.purchaseClass(id, address(token), trainer, price, sat, bad);
         vm.stopPrank();
     }
@@ -266,7 +278,7 @@ contract MarketplaceEscrowTest is Test {
         vm.warp(block.timestamp + 16 minutes);
         vm.startPrank(buyer);
         token.approve(address(escrow), type(uint256).max);
-        vm.expectRevert(IMarketplaceEscrow.SignatureExpired.selector);
+        vm.expectRevert(IEscrowBase.SignatureExpired.selector);
         escrow.purchaseClass(id, address(token), trainer, price, sat, sig);
         vm.stopPrank();
     }
@@ -279,7 +291,7 @@ contract MarketplaceEscrowTest is Test {
         vm.startPrank(buyer);
         token.approve(address(escrow), type(uint256).max);
         escrow.purchaseClass(id1, address(token), trainer, price, sat, sig);
-        vm.expectRevert(IMarketplaceEscrow.InvalidSignature.selector);
+        vm.expectRevert(IEscrowBase.InvalidSignature.selector);
         escrow.purchaseClass(id2, address(token), trainer, price, sat, sig);
         vm.stopPrank();
     }
@@ -334,7 +346,7 @@ contract MarketplaceEscrowTest is Test {
         bytes memory sig = _sign(signerPk, buyer, id, address(bad), trainer, price, sat);
         vm.startPrank(buyer);
         bad.approve(address(escrow), type(uint256).max);
-        vm.expectRevert(IMarketplaceEscrow.UnsupportedToken.selector);
+        vm.expectRevert(IEscrowBase.UnsupportedToken.selector);
         escrow.purchaseClass(id, address(bad), trainer, price, sat, sig);
         vm.stopPrank();
     }
