@@ -60,10 +60,11 @@ interface IMarketplaceEscrow {
         uint256 signedAt,
         bytes calldata signature
     ) external;
-    // Buyer confirms class was received; transfers locked tokens to trainer
-    function confirmClass(bytes32 orderId) external;
+    // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
+    function confirmClass(bytes32 orderId, uint256 signedAt, bytes calldata signature) external;
     // Buyer or trainer cancels order; refunds locked tokens to buyer
-    function cancelClass(bytes32 orderId) external;
+    // Requires a valid EIP-712 signature from the server; signedAt is when the server signed
+    function cancelClass(bytes32 orderId, uint256 signedAt, bytes calldata signature) external;
     function adminSettle(bytes32 orderId) external;
     function adminRefund(bytes32 orderId) external;
     // Permissionless refund callable by anyone once the order deadline has passed

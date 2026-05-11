@@ -34,6 +34,10 @@ contract MarketplaceEscrowTest is Test {
     bytes32 private constant _TYPEHASH = keccak256(
         "PurchaseClass(address buyer,bytes32 orderId,address token,address trainer,uint256 price,uint256 signedAt)"
     );
+    bytes32 private constant _CONFIRM_TYPEHASH =
+        keccak256("ConfirmClass(address buyer,bytes32 orderId,uint256 signedAt)");
+    bytes32 private constant _CANCEL_TYPEHASH =
+        keccak256("CancelClass(address caller,bytes32 orderId,uint256 signedAt)");
     BatchImplementation public batchImpl;
 
     function setUp() public {
@@ -70,6 +74,28 @@ contract MarketplaceEscrowTest is Test {
         uint256 signedAt
     ) internal view returns (bytes memory) {
         bytes32 h = keccak256(abi.encode(_TYPEHASH, _buyer, orderId, _tok, _trainer, _price, signedAt));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signConfirm(uint256 pk, address _buyer, bytes32 orderId, uint256 signedAt)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 h = keccak256(abi.encode(_CONFIRM_TYPEHASH, _buyer, orderId, signedAt));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _signCancel(uint256 pk, address caller, bytes32 orderId, uint256 signedAt)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 h = keccak256(abi.encode(_CANCEL_TYPEHASH, caller, orderId, signedAt));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domain(), h));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
@@ -140,39 +166,49 @@ contract MarketplaceEscrowTest is Test {
     function test_ConfirmClass() public {
         bytes32 id = _buy();
         uint256 bal = token.balanceOf(trainer);
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signConfirm(signerPk, buyer, id, sat);
         vm.prank(buyer);
-        escrow.confirmClass(id);
+        escrow.confirmClass(id, sat, sig);
         assertEq(token.balanceOf(trainer), bal + price);
         assertEq(escrow.getOrder(id).state, escrow.STATE_CONFIRMED());
     }
 
     function test_Fail_ConfirmByNonBuyer() public {
         bytes32 id = _buy();
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signConfirm(signerPk, stranger, id, sat);
         vm.prank(stranger);
         vm.expectRevert(IMarketplaceEscrow.OnlyBuyer.selector);
-        escrow.confirmClass(id);
+        escrow.confirmClass(id, sat, sig);
     }
 
     function test_CancelClass_ByBuyer() public {
         bytes32 id = _buy();
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signCancel(signerPk, buyer, id, sat);
         vm.prank(buyer);
-        escrow.cancelClass(id);
+        escrow.cancelClass(id, sat, sig);
         assertEq(token.balanceOf(buyer), 10_000 ether);
         assertEq(escrow.getOrder(id).state, escrow.STATE_CANCELLED());
     }
 
     function test_CancelClass_ByTrainer() public {
         bytes32 id = _buy();
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signCancel(signerPk, trainer, id, sat);
         vm.prank(trainer);
-        escrow.cancelClass(id);
+        escrow.cancelClass(id, sat, sig);
         assertEq(token.balanceOf(buyer), 10_000 ether);
     }
 
     function test_Fail_CancelByStranger() public {
         bytes32 id = _buy();
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signCancel(signerPk, stranger, id, sat);
         vm.prank(stranger);
         vm.expectRevert(IMarketplaceEscrow.OnlyBuyerOrTrainer.selector);
-        escrow.cancelClass(id);
+        escrow.cancelClass(id, sat, sig);
     }
 
     function test_AdminSettle() public {
@@ -275,9 +311,11 @@ contract MarketplaceEscrowTest is Test {
     function test_Fail_ConfirmAfterDeadline() public {
         bytes32 id = _buy();
         vm.warp(block.timestamp + 31 days);
+        uint256 sat = block.timestamp;
+        bytes memory sig = _signConfirm(signerPk, buyer, id, sat);
         vm.prank(buyer);
         vm.expectRevert(IMarketplaceEscrow.DeadlineExpired.selector);
-        escrow.confirmClass(id);
+        escrow.confirmClass(id, sat, sig);
     }
 
     function test_Fail_AdminSettleAfterDeadline() public {
@@ -314,11 +352,14 @@ contract MarketplaceEscrowTest is Test {
 
     function test_Fail_AlreadySettled() public {
         bytes32 id = _buy();
+        uint256 sat = block.timestamp;
+        bytes memory confirmSig = _signConfirm(signerPk, buyer, id, sat);
         vm.prank(buyer);
-        escrow.confirmClass(id);
+        escrow.confirmClass(id, sat, confirmSig);
+        bytes memory confirmSig2 = _signConfirm(signerPk, buyer, id, sat);
         vm.prank(buyer);
         vm.expectRevert(IMarketplaceEscrow.AlreadySettled.selector);
-        escrow.confirmClass(id);
+        escrow.confirmClass(id, sat, confirmSig2);
         vm.prank(owner);
         vm.expectRevert(IMarketplaceEscrow.AlreadySettled.selector);
         escrow.adminSettle(id);

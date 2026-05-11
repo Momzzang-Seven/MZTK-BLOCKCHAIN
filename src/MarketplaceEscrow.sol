@@ -15,6 +15,12 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
     bytes32 private constant _PURCHASE_CLASS_TYPEHASH = keccak256(
         "PurchaseClass(address buyer,bytes32 orderId,address token,address trainer,uint256 price,uint256 signedAt)"
     );
+    // EIP-712 typehash for server-signed class confirmation authorization
+    bytes32 private constant _CONFIRM_CLASS_TYPEHASH =
+        keccak256("ConfirmClass(address buyer,bytes32 orderId,uint256 signedAt)");
+    // EIP-712 typehash for server-signed class cancellation authorization
+    bytes32 private constant _CANCEL_CLASS_TYPEHASH =
+        keccak256("CancelClass(address caller,bytes32 orderId,uint256 signedAt)");
 
     // State constants representing the lifecycle of an order
     uint16 public constant STATE_CREATED = 1000;
@@ -125,12 +131,9 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
         if (orders[orderId].buyer != address(0)) revert OrderAlreadyExists();
 
         // Verify the server-issued EIP-712 authorization
-        // signedAt must be in the past, and within the allowed validity window
-        if (signedAt > block.timestamp) revert InvalidSignature();
-        if (block.timestamp > signedAt + sigValidityDuration) revert SignatureExpired();
         bytes32 structHash =
             keccak256(abi.encode(_PURCHASE_CLASS_TYPEHASH, msg.sender, orderId, token, trainer, price, signedAt));
-        if (ECDSA.recover(_hashTypedDataV4(structHash), signature) != signer) revert InvalidSignature();
+        _verifyServerSig(structHash, signedAt, signature);
 
         uint48 deadline = uint48(block.timestamp) + defaultDeadlineDuration;
 
@@ -149,8 +152,9 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
         emit ClassPurchased(orderId, msg.sender, trainer, token, price);
     }
 
-    // Confirms class completion; only the buyer can confirm, which releases payment to the trainer
-    function confirmClass(bytes32 orderId) external {
+    // Confirms class completion; only the buyer can confirm, which releases payment to the trainer.
+    // Requires a valid EIP-712 signature from the server authorizing this confirmation.
+    function confirmClass(bytes32 orderId, uint256 signedAt, bytes calldata signature) external {
         ClassOrder storage o = orders[orderId];
 
         if (o.buyer == address(0)) revert OrderNotFound();
@@ -159,6 +163,9 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
         // Prevent confirmation after escrow deadline (claimExpiredRefund takes precedence)
         if (block.timestamp > o.deadline) revert DeadlineExpired();
 
+        bytes32 structHash = keccak256(abi.encode(_CONFIRM_CLASS_TYPEHASH, msg.sender, orderId, signedAt));
+        _verifyServerSig(structHash, signedAt, signature);
+
         o.state = STATE_CONFIRMED;
         IERC20(o.token).safeTransfer(o.trainer, o.price);
 
@@ -166,14 +173,18 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
     }
 
     // Cancels the order and refunds locked tokens to the buyer; callable by buyer or trainer.
-    // Intentionally has no deadline guard ??refunding is always safe regardless of deadline.
+    // Requires a valid EIP-712 signature from the server authorizing this cancellation.
+    // Intentionally has no deadline guard — refunding is always safe regardless of deadline.
     // After deadline, both cancelClass and claimExpiredRefund are callable; first caller wins.
-    function cancelClass(bytes32 orderId) external {
+    function cancelClass(bytes32 orderId, uint256 signedAt, bytes calldata signature) external {
         ClassOrder storage o = orders[orderId];
 
         if (o.buyer == address(0)) revert OrderNotFound();
         if (o.state != STATE_CREATED) revert AlreadySettled();
         if (msg.sender != o.buyer && msg.sender != o.trainer) revert OnlyBuyerOrTrainer();
+
+        bytes32 structHash = keccak256(abi.encode(_CANCEL_CLASS_TYPEHASH, msg.sender, orderId, signedAt));
+        _verifyServerSig(structHash, signedAt, signature);
 
         o.state = STATE_CANCELLED;
         IERC20(o.token).safeTransfer(o.buyer, o.price);
@@ -222,6 +233,14 @@ contract MarketplaceEscrow is IMarketplaceEscrow, Ownable, EIP712 {
         IERC20(o.token).safeTransfer(o.buyer, o.price);
 
         emit DeadlineRefunded(orderId, o.buyer, o.price);
+    }
+
+    // Verifies a server-issued EIP-712 signature: signedAt must not be future-dated,
+    // must fall within the validity window, and must be signed by the trusted signer.
+    function _verifyServerSig(bytes32 structHash, uint256 signedAt, bytes calldata signature) private view {
+        if (signedAt > block.timestamp) revert InvalidSignature();
+        if (block.timestamp > signedAt + sigValidityDuration) revert SignatureExpired();
+        if (ECDSA.recover(_hashTypedDataV4(structHash), signature) != signer) revert InvalidSignature();
     }
 
     // Retrieves the details of a specific order
